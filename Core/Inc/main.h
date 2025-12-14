@@ -59,20 +59,14 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define MQ135_Pin GPIO_PIN_0
-#define MQ135_GPIO_Port GPIOA
-#define motor1_Pin GPIO_PIN_1
+#define motor1_Pin GPIO_PIN_2
 #define motor1_GPIO_Port GPIOA
-#define motor1A2_Pin GPIO_PIN_2
-#define motor1A2_GPIO_Port GPIOA
 #define motor1A3_Pin GPIO_PIN_3
 #define motor1A3_GPIO_Port GPIOA
 #define motor1A4_Pin GPIO_PIN_4
 #define motor1A4_GPIO_Port GPIOA
 #define motor1A5_Pin GPIO_PIN_5
 #define motor1A5_GPIO_Port GPIOA
-#define fans_Pin GPIO_PIN_6
-#define fans_GPIO_Port GPIOA
 #define DHT22_Pin GPIO_PIN_12
 #define DHT22_GPIO_Port GPIOB
 #define motor2_Pin GPIO_PIN_8
@@ -83,14 +77,8 @@ void Error_Handler(void);
 #define motor2A10_GPIO_Port GPIOA
 #define motor2A11_Pin GPIO_PIN_11
 #define motor2A11_GPIO_Port GPIOA
-#define bluetooth_Pin GPIO_PIN_6
-#define bluetooth_GPIO_Port GPIOB
-#define bluetoothB7_Pin GPIO_PIN_7
-#define bluetoothB7_GPIO_Port GPIOB
-#define GY_30_Pin GPIO_PIN_8
-#define GY_30_GPIO_Port GPIOB
-#define GY_30B9_Pin GPIO_PIN_9
-#define GY_30B9_GPIO_Port GPIOB
+#define motor2A12_Pin GPIO_PIN_12
+#define motor2A12_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
 
