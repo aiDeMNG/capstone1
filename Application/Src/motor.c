@@ -1,221 +1,75 @@
 /**
  * @file    motor.c
- * @brief   42步进电机驱动实现
- * @note    控制两个42步进电机:
+ * @brief   步进电机驱动模块
+ * @note    控制两个步进电机:
  *          - Motor1 (窗户): PA2, PA3, PA4, PA5
  *          - Motor2 (窗帘): PA8, PA9, PA10, PA11
- *          根据BH1750光照传感器数值自动调节开度
+ *          根据 gy_30 模块的标志位控制电机
  */
 
 #include "motor.h"
-#include <stdlib.h>
 
-/* 步进电机相位表 (4相8拍驱动方式) */
-/* 顺序: A, AB, B, BC, C, CD, D, DA */
-static const uint8_t phase_table[MOTOR_PHASE_COUNT][4] = {
-    {1, 0, 0, 0},   // Phase 0: A
-    {1, 1, 0, 0},   // Phase 1: AB
-    {0, 1, 0, 0},   // Phase 2: B
-    {0, 1, 1, 0},   // Phase 3: BC
-    {0, 0, 1, 0},   // Phase 4: C
-    {0, 0, 1, 1},   // Phase 5: CD
-    {0, 0, 0, 1},   // Phase 6: D
-    {1, 0, 0, 1}    // Phase 7: DA
+/* 步进电机相位表 (4相8拍) */
+static const uint8_t phase_table[MOTOR_PHASE_COUNT] = {
+    0x01,   // 0001 - A
+    0x03,   // 0011 - AB
+    0x02,   // 0010 - B
+    0x06,   // 0110 - BC
+    0x04,   // 0100 - C
+    0x0C,   // 1100 - CD
+    0x08,   // 1000 - D
+    0x09    // 1001 - DA
 };
 
-/* 私有函数声明 */
-static void Motor_InitSingle(Motor_HandleTypeDef *hmotor, Motor_ID id,
-                             GPIO_TypeDef *port_a, uint16_t pin_a,
-                             GPIO_TypeDef *port_b, uint16_t pin_b,
-                             GPIO_TypeDef *port_c, uint16_t pin_c,
-                             GPIO_TypeDef *port_d, uint16_t pin_d);
+/* ==================== 私有函数声明 ==================== */
+
 static void Motor_SetPhase(Motor_HandleTypeDef *hmotor, uint8_t phase);
-static void Motor_MoveToTarget(Motor_HandleTypeDef *hmotor);
-static void Motor_AutoControl(MotorCtrl_HandleTypeDef *hctrl);
+static void Motor_StepForward(Motor_HandleTypeDef *hmotor);
+static void Motor_StepBackward(Motor_HandleTypeDef *hmotor);
+static void Motor_Release(Motor_HandleTypeDef *hmotor);
+static void Motor_ProcessSingle(Motor_HandleTypeDef *hmotor);
+
+/* ==================== 公共函数实现 ==================== */
 
 /**
  * @brief  初始化电机控制系统
  */
-void Motor_Init(MotorCtrl_HandleTypeDef *hctrl, BH1750_HandleTypeDef *hbh1750)
+void Motor_Init(MotorCtrl_HandleTypeDef *hctrl, LightSensor_HandleTypeDef *hlsensor)
 {
     if (hctrl == NULL) {
         return;
     }
 
-    /* 保存光照传感器句柄 */
-    hctrl->hbh1750 = hbh1750;
+    hctrl->hlsensor = hlsensor;
 
-    /* 设置默认模式为自动 */
-    hctrl->mode = MOTOR_MODE_AUTO;
-    hctrl->current_lux = 0;
-    hctrl->last_update_tick = 0;
+    /* 初始化窗户电机 (Motor1: PA2, PA3, PA4, PA5) */
+    hctrl->window.state = MOTOR_CLOSED;
+    hctrl->window.current_phase = 0;
+    hctrl->window.step_count = 0;
+    hctrl->window.port = GPIOA;
+    hctrl->window.pin_a = motor1_Pin;       // PA2
+    hctrl->window.pin_b = motor1A3_Pin;     // PA3
+    hctrl->window.pin_c = motor1A4_Pin;     // PA4
+    hctrl->window.pin_d = motor1A5_Pin;     // PA5
 
-    /* 设置默认光照阈值 */
-    hctrl->lux_window_open = LUX_WINDOW_OPEN_THRESHOLD;
-    hctrl->lux_window_close = LUX_WINDOW_CLOSE_THRESHOLD;
-    hctrl->lux_curtain_open = LUX_CURTAIN_OPEN_THRESHOLD;
-    hctrl->lux_curtain_close = LUX_CURTAIN_CLOSE_THRESHOLD;
+    /* 初始化窗帘电机 (Motor2: PA8, PA9, PA10, PA11) */
+    hctrl->curtain.state = MOTOR_CLOSED;
+    hctrl->curtain.current_phase = 0;
+    hctrl->curtain.step_count = 0;
+    hctrl->curtain.port = GPIOA;
+    hctrl->curtain.pin_a = motor2_Pin;      // PA8
+    hctrl->curtain.pin_b = motor2A9_Pin;    // PA9
+    hctrl->curtain.pin_c = motor2A10_Pin;   // PA10
+    hctrl->curtain.pin_d = motor2A11_Pin;   // PA11
 
-    /* 初始化窗户电机 (Motor1): PA2, PA3, PA4, PA5 */
-    Motor_InitSingle(&hctrl->window_motor, MOTOR_WINDOW,
-                     motor1_GPIO_Port, motor1_Pin,       // PA2 - A相
-                     motor1A3_GPIO_Port, motor1A3_Pin,   // PA3 - B相
-                     motor1A4_GPIO_Port, motor1A4_Pin,   // PA4 - C相
-                     motor1A5_GPIO_Port, motor1A5_Pin);  // PA5 - D相
-
-    /* 初始化窗帘电机 (Motor2): PA8, PA9, PA10, PA11 */
-    Motor_InitSingle(&hctrl->curtain_motor, MOTOR_CURTAIN,
-                     motor2_GPIO_Port, motor2_Pin,         // PA8 - A相
-                     motor2A9_GPIO_Port, motor2A9_Pin,     // PA9 - B相
-                     motor2A10_GPIO_Port, motor2A10_Pin,   // PA10 - C相
-                     motor2A11_GPIO_Port, motor2A11_Pin);  // PA11 - D相
-
-    /* 释放电机 (初始状态不通电) */
-    Motor_Release(&hctrl->window_motor);
-    Motor_Release(&hctrl->curtain_motor);
+    /* 释放电机 (初始不通电) */
+    Motor_Release(&hctrl->window);
+    Motor_Release(&hctrl->curtain);
 }
 
 /**
- * @brief  初始化单个电机
- */
-static void Motor_InitSingle(Motor_HandleTypeDef *hmotor, Motor_ID id,
-                             GPIO_TypeDef *port_a, uint16_t pin_a,
-                             GPIO_TypeDef *port_b, uint16_t pin_b,
-                             GPIO_TypeDef *port_c, uint16_t pin_c,
-                             GPIO_TypeDef *port_d, uint16_t pin_d)
-{
-    hmotor->id = id;
-    hmotor->state = MOTOR_STATE_IDLE;
-    hmotor->direction = MOTOR_DIR_CW;
-    hmotor->current_position = 0;
-    hmotor->target_position = 0;
-    hmotor->current_phase = 0;
-    hmotor->step_delay = MOTOR_STEP_DELAY_MS;
-
-    /* 配置GPIO引脚 */
-    hmotor->port_a = port_a;
-    hmotor->pin_a = pin_a;
-    hmotor->port_b = port_b;
-    hmotor->pin_b = pin_b;
-    hmotor->port_c = port_c;
-    hmotor->pin_c = pin_c;
-    hmotor->port_d = port_d;
-    hmotor->pin_d = pin_d;
-}
-
-/**
- * @brief  设置电机相位输出
- */
-static void Motor_SetPhase(Motor_HandleTypeDef *hmotor, uint8_t phase)
-{
-    if (phase >= MOTOR_PHASE_COUNT) {
-        return;
-    }
-
-    /* 设置4个引脚状态 */
-    HAL_GPIO_WritePin(hmotor->port_a, hmotor->pin_a,
-                      phase_table[phase][0] ? GPIO_PIN_RESET : GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_b, hmotor->pin_b,
-                      phase_table[phase][1] ? GPIO_PIN_RESET : GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_c, hmotor->pin_c,
-                      phase_table[phase][2] ? GPIO_PIN_RESET : GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_d, hmotor->pin_d,
-                      phase_table[phase][3] ? GPIO_PIN_RESET : GPIO_PIN_SET);
-}
-
-/**
- * @brief  电机单步执行
- */
-void Motor_Step(Motor_HandleTypeDef *hmotor)
-{
-    if (hmotor == NULL) {
-        return;
-    }
-
-    /* 根据方向更新相位 */
-    if (hmotor->direction == MOTOR_DIR_CW) {
-        hmotor->current_phase++;
-        if (hmotor->current_phase >= MOTOR_PHASE_COUNT) {
-            hmotor->current_phase = 0;
-        }
-        hmotor->current_position++;
-    } else {
-        if (hmotor->current_phase == 0) {
-            hmotor->current_phase = MOTOR_PHASE_COUNT - 1;
-        } else {
-            hmotor->current_phase--;
-        }
-        hmotor->current_position--;
-    }
-
-    /* 限制位置范围 */
-    if (hmotor->current_position > MOTOR_MAX_POSITION) {
-        hmotor->current_position = MOTOR_MAX_POSITION;
-    }
-    if (hmotor->current_position < MOTOR_MIN_POSITION) {
-        hmotor->current_position = MOTOR_MIN_POSITION;
-    }
-
-    /* 输出相位 */
-    Motor_SetPhase(hmotor, hmotor->current_phase);
-}
-
-/**
- * @brief  释放电机 (断电)
- */
-void Motor_Release(Motor_HandleTypeDef *hmotor)
-{
-    if (hmotor == NULL) {
-        return;
-    }
-
-    /* 所有引脚输出高电平 (ULN2003反向驱动时为断电状态) */
-    HAL_GPIO_WritePin(hmotor->port_a, hmotor->pin_a, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_b, hmotor->pin_b, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_c, hmotor->pin_c, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(hmotor->port_d, hmotor->pin_d, GPIO_PIN_SET);
-
-    hmotor->state = MOTOR_STATE_IDLE;
-}
-
-/**
- * @brief  移动电机到目标位置
- */
-static void Motor_MoveToTarget(Motor_HandleTypeDef *hmotor)
-{
-    if (hmotor == NULL) {
-        return;
-    }
-
-    /* 判断是否需要移动 */
-    if (hmotor->current_position == hmotor->target_position) {
-        /* 已到达目标位置 */
-        if (hmotor->target_position >= MOTOR_MAX_POSITION) {
-            hmotor->state = MOTOR_STATE_FULLY_OPEN;
-        } else if (hmotor->target_position <= MOTOR_MIN_POSITION) {
-            hmotor->state = MOTOR_STATE_FULLY_CLOSED;
-        } else {
-            hmotor->state = MOTOR_STATE_IDLE;
-        }
-        Motor_Release(hmotor);
-        return;
-    }
-
-    /* 设置运行状态和方向 */
-    hmotor->state = MOTOR_STATE_RUNNING;
-
-    if (hmotor->target_position > hmotor->current_position) {
-        hmotor->direction = MOTOR_DIR_CW;   // 正转打开
-    } else {
-        hmotor->direction = MOTOR_DIR_CCW;  // 反转关闭
-    }
-
-    /* 执行一步 */
-    Motor_Step(hmotor);
-}
-
-/**
- * @brief  电机控制主处理函数
+ * @brief  电机控制处理函数
+ * @note   根据光照传感器的标志位控制电机
  */
 void Motor_Process(MotorCtrl_HandleTypeDef *hctrl)
 {
@@ -223,178 +77,80 @@ void Motor_Process(MotorCtrl_HandleTypeDef *hctrl)
         return;
     }
 
-    uint32_t current_tick = HAL_GetTick();
-
-    /* 读取光照传感器 (每500ms更新一次) */
-    if (current_tick - hctrl->last_update_tick >= 500) {
-        hctrl->last_update_tick = current_tick;
-
-        if (hctrl->hbh1750 != NULL) {
-            BH1750_ReadLight(hctrl->hbh1750, &hctrl->current_lux);
+    /* 检查光照传感器标志位 */
+    if (hctrl->hlsensor != NULL) {
+        /* 处理窗户标志 */
+        Window_Flag wflag = LightSensor_GetWindowFlag(hctrl->hlsensor);
+        if (wflag == WINDOW_FLAG_OPEN && hctrl->window.state != MOTOR_OPENING) {
+            Motor_OpenWindow(hctrl);
+            LightSensor_ClearWindowFlag(hctrl->hlsensor);
+        } else if (wflag == WINDOW_FLAG_CLOSE && hctrl->window.state != MOTOR_CLOSING) {
+            Motor_CloseWindow(hctrl);
+            LightSensor_ClearWindowFlag(hctrl->hlsensor);
         }
 
-        /* 自动模式下根据光照调整 */
-        if (hctrl->mode == MOTOR_MODE_AUTO) {
-            Motor_AutoControl(hctrl);
+        /* 处理窗帘标志 */
+        Curtain_Flag cflag = LightSensor_GetCurtainFlag(hctrl->hlsensor);
+        if (cflag == CURTAIN_FLAG_OPEN && hctrl->curtain.state != MOTOR_OPENING) {
+            Motor_OpenCurtain(hctrl);
+            LightSensor_ClearCurtainFlag(hctrl->hlsensor);
+        } else if (cflag == CURTAIN_FLAG_CLOSE && hctrl->curtain.state != MOTOR_CLOSING) {
+            Motor_CloseCurtain(hctrl);
+            LightSensor_ClearCurtainFlag(hctrl->hlsensor);
         }
     }
 
-    /* 处理窗户电机移动 */
-    if (hctrl->window_motor.state == MOTOR_STATE_RUNNING ||
-        hctrl->window_motor.current_position != hctrl->window_motor.target_position) {
-        Motor_MoveToTarget(&hctrl->window_motor);
-        HAL_Delay(hctrl->window_motor.step_delay);
-    }
-
-    /* 处理窗帘电机移动 */
-    if (hctrl->curtain_motor.state == MOTOR_STATE_RUNNING ||
-        hctrl->curtain_motor.current_position != hctrl->curtain_motor.target_position) {
-        Motor_MoveToTarget(&hctrl->curtain_motor);
-        HAL_Delay(hctrl->curtain_motor.step_delay);
-    }
+    /* 处理电机步进 */
+    Motor_ProcessSingle(&hctrl->window);
+    Motor_ProcessSingle(&hctrl->curtain);
 }
 
 /**
- * @brief  自动控制逻辑
+ * @brief  手动打开窗户
  */
-static void Motor_AutoControl(MotorCtrl_HandleTypeDef *hctrl)
-{
-    uint8_t window_target, curtain_target;
-
-    /* 计算窗户目标开度 */
-    window_target = Motor_CalculateTargetPosition(hctrl->current_lux,
-                                                   hctrl->lux_window_open,
-                                                   hctrl->lux_window_close);
-
-    /* 计算窗帘目标开度 */
-    curtain_target = Motor_CalculateTargetPosition(hctrl->current_lux,
-                                                    hctrl->lux_curtain_open,
-                                                    hctrl->lux_curtain_close);
-
-    /* 设置窗户目标位置 */
-    int32_t window_pos = PERCENT_TO_POSITION(window_target);
-    if (abs(window_pos - hctrl->window_motor.current_position) >
-        PERCENT_TO_POSITION(5)) {  // 5%死区
-        hctrl->window_motor.target_position = window_pos;
-    }
-
-    /* 设置窗帘目标位置 */
-    int32_t curtain_pos = PERCENT_TO_POSITION(curtain_target);
-    if (abs(curtain_pos - hctrl->curtain_motor.current_position) >
-        PERCENT_TO_POSITION(5)) {  // 5%死区
-        hctrl->curtain_motor.target_position = curtain_pos;
-    }
-}
-
-/**
- * @brief  根据光照值计算目标开度
- */
-uint8_t Motor_CalculateTargetPosition(float lux, float open_threshold, float close_threshold)
-{
-    if (lux <= open_threshold) {
-        /* 光照低于打开阈值 - 全开 */
-        return 100;
-    } else if (lux >= close_threshold) {
-        /* 光照高于关闭阈值 - 全关 */
-        return 0;
-    } else {
-        /* 线性插值计算开度 */
-        /* 光照越强, 开度越小 */
-        float range = close_threshold - open_threshold;
-        float position = (close_threshold - lux) / range;
-        return (uint8_t)(position * 100);
-    }
-}
-
-/**
- * @brief  设置控制模式
- */
-void Motor_SetMode(MotorCtrl_HandleTypeDef *hctrl, Motor_Mode mode)
+void Motor_OpenWindow(MotorCtrl_HandleTypeDef *hctrl)
 {
     if (hctrl == NULL) {
         return;
     }
-    hctrl->mode = mode;
+    hctrl->window.state = MOTOR_OPENING;
+    hctrl->window.step_count = MOTOR_STEPS_FULL;
 }
 
 /**
- * @brief  设置窗户开度
+ * @brief  手动关闭窗户
  */
-void Motor_SetWindowPosition(MotorCtrl_HandleTypeDef *hctrl, uint8_t percent)
+void Motor_CloseWindow(MotorCtrl_HandleTypeDef *hctrl)
 {
     if (hctrl == NULL) {
         return;
     }
-
-    if (percent > 100) {
-        percent = 100;
-    }
-
-    hctrl->window_motor.target_position = PERCENT_TO_POSITION(percent);
+    hctrl->window.state = MOTOR_CLOSING;
+    hctrl->window.step_count = MOTOR_STEPS_FULL;
 }
 
 /**
- * @brief  设置窗帘开度
+ * @brief  手动打开窗帘
  */
-void Motor_SetCurtainPosition(MotorCtrl_HandleTypeDef *hctrl, uint8_t percent)
+void Motor_OpenCurtain(MotorCtrl_HandleTypeDef *hctrl)
 {
     if (hctrl == NULL) {
         return;
     }
-
-    if (percent > 100) {
-        percent = 100;
-    }
-
-    hctrl->curtain_motor.target_position = PERCENT_TO_POSITION(percent);
+    hctrl->curtain.state = MOTOR_OPENING;
+    hctrl->curtain.step_count = MOTOR_STEPS_FULL;
 }
 
 /**
- * @brief  获取窗户当前开度
+ * @brief  手动关闭窗帘
  */
-uint8_t Motor_GetWindowPosition(MotorCtrl_HandleTypeDef *hctrl)
-{
-    if (hctrl == NULL) {
-        return 0;
-    }
-    return POSITION_TO_PERCENT(hctrl->window_motor.current_position);
-}
-
-/**
- * @brief  获取窗帘当前开度
- */
-uint8_t Motor_GetCurtainPosition(MotorCtrl_HandleTypeDef *hctrl)
-{
-    if (hctrl == NULL) {
-        return 0;
-    }
-    return POSITION_TO_PERCENT(hctrl->curtain_motor.current_position);
-}
-
-/**
- * @brief  停止窗户电机
- */
-void Motor_StopWindow(MotorCtrl_HandleTypeDef *hctrl)
+void Motor_CloseCurtain(MotorCtrl_HandleTypeDef *hctrl)
 {
     if (hctrl == NULL) {
         return;
     }
-
-    hctrl->window_motor.target_position = hctrl->window_motor.current_position;
-    Motor_Release(&hctrl->window_motor);
-}
-
-/**
- * @brief  停止窗帘电机
- */
-void Motor_StopCurtain(MotorCtrl_HandleTypeDef *hctrl)
-{
-    if (hctrl == NULL) {
-        return;
-    }
-
-    hctrl->curtain_motor.target_position = hctrl->curtain_motor.current_position;
-    Motor_Release(&hctrl->curtain_motor);
+    hctrl->curtain.state = MOTOR_CLOSING;
+    hctrl->curtain.step_count = MOTOR_STEPS_FULL;
 }
 
 /**
@@ -402,34 +158,119 @@ void Motor_StopCurtain(MotorCtrl_HandleTypeDef *hctrl)
  */
 void Motor_StopAll(MotorCtrl_HandleTypeDef *hctrl)
 {
-    Motor_StopWindow(hctrl);
-    Motor_StopCurtain(hctrl);
-}
-
-/**
- * @brief  设置光照阈值
- */
-void Motor_SetLuxThreshold(MotorCtrl_HandleTypeDef *hctrl,
-                           float window_open, float window_close,
-                           float curtain_open, float curtain_close)
-{
     if (hctrl == NULL) {
         return;
     }
+    hctrl->window.step_count = 0;
+    hctrl->window.state = MOTOR_IDLE;
+    Motor_Release(&hctrl->window);
 
-    hctrl->lux_window_open = window_open;
-    hctrl->lux_window_close = window_close;
-    hctrl->lux_curtain_open = curtain_open;
-    hctrl->lux_curtain_close = curtain_close;
+    hctrl->curtain.step_count = 0;
+    hctrl->curtain.state = MOTOR_IDLE;
+    Motor_Release(&hctrl->curtain);
 }
 
 /**
- * @brief  获取当前光照值
+ * @brief  获取窗户状态
  */
-float Motor_GetCurrentLux(MotorCtrl_HandleTypeDef *hctrl)
+Motor_State Motor_GetWindowState(MotorCtrl_HandleTypeDef *hctrl)
 {
     if (hctrl == NULL) {
-        return 0;
+        return MOTOR_IDLE;
     }
-    return hctrl->current_lux;
+    return hctrl->window.state;
+}
+
+/**
+ * @brief  获取窗帘状态
+ */
+Motor_State Motor_GetCurtainState(MotorCtrl_HandleTypeDef *hctrl)
+{
+    if (hctrl == NULL) {
+        return MOTOR_IDLE;
+    }
+    return hctrl->curtain.state;
+}
+
+/* ==================== 私有函数实现 ==================== */
+
+/**
+ * @brief  设置电机相位输出
+ */
+static void Motor_SetPhase(Motor_HandleTypeDef *hmotor, uint8_t phase)
+{
+    uint8_t seq = phase_table[phase & 0x07];
+
+    /* ULN2003反向驱动: 低电平导通 */
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_a, (seq & 0x01) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_b, (seq & 0x02) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_c, (seq & 0x04) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_d, (seq & 0x08) ? GPIO_PIN_RESET : GPIO_PIN_SET);
+}
+
+/**
+ * @brief  电机正转一步
+ */
+static void Motor_StepForward(Motor_HandleTypeDef *hmotor)
+{
+    hmotor->current_phase++;
+    if (hmotor->current_phase >= MOTOR_PHASE_COUNT) {
+        hmotor->current_phase = 0;
+    }
+    Motor_SetPhase(hmotor, hmotor->current_phase);
+}
+
+/**
+ * @brief  电机反转一步
+ */
+static void Motor_StepBackward(Motor_HandleTypeDef *hmotor)
+{
+    if (hmotor->current_phase == 0) {
+        hmotor->current_phase = MOTOR_PHASE_COUNT - 1;
+    } else {
+        hmotor->current_phase--;
+    }
+    Motor_SetPhase(hmotor, hmotor->current_phase);
+}
+
+/**
+ * @brief  释放电机 (断电)
+ */
+static void Motor_Release(Motor_HandleTypeDef *hmotor)
+{
+    /* 所有引脚输出高电平 (ULN2003: 高电平=断开) */
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_a, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_b, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_c, GPIO_PIN_SET);
+    HAL_GPIO_WritePin(hmotor->port, hmotor->pin_d, GPIO_PIN_SET);
+}
+
+/**
+ * @brief  处理单个电机的步进
+ */
+static void Motor_ProcessSingle(Motor_HandleTypeDef *hmotor)
+{
+    if (hmotor->step_count <= 0) {
+        return;
+    }
+
+    /* 执行一步 */
+    if (hmotor->state == MOTOR_OPENING) {
+        Motor_StepForward(hmotor);
+    } else if (hmotor->state == MOTOR_CLOSING) {
+        Motor_StepBackward(hmotor);
+    }
+
+    hmotor->step_count--;
+    HAL_Delay(MOTOR_STEP_DELAY_MS);
+
+    /* 检查是否完成 */
+    if (hmotor->step_count <= 0) {
+        if (hmotor->state == MOTOR_OPENING) {
+            hmotor->state = MOTOR_OPEN;
+        } else if (hmotor->state == MOTOR_CLOSING) {
+            hmotor->state = MOTOR_CLOSED;
+        }
+        Motor_Release(hmotor);
+    }
 }

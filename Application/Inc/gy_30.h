@@ -1,7 +1,8 @@
 /**
  * @file    gy_30.h
- * @brief   GY-30 光照控制模块
- * @note    根据光照强度自动控制窗户/窗帘开关
+ * @brief   GY-30 (BH1750) 光照传感器模块
+ * @note    只负责读取光照值和设置控制标志位
+ *          电机控制由 motor.c 根据标志位执行
  */
 
 #ifndef __GY_30_H
@@ -13,105 +14,148 @@ extern "C" {
 
 #include "main.h"
 #include "bh1750.h"
+#include <stdint.h>
 
-/* 光照控制状态 */
+/* ==================== 控制标志位定义 ==================== */
+
+/* 窗户控制标志 */
 typedef enum {
-    LIGHT_CTRL_IDLE = 0,      // 空闲状态
-    LIGHT_CTRL_OPENING,       // 正在打开窗帘
-    LIGHT_CTRL_CLOSING,       // 正在关闭窗帘
-    LIGHT_CTRL_OPEN,          // 窗帘已打开
-    LIGHT_CTRL_CLOSED         // 窗帘已关闭
-} LightCtrl_State;
+    WINDOW_FLAG_NONE = 0,       // 无动作
+    WINDOW_FLAG_OPEN,           // 需要打开窗户
+    WINDOW_FLAG_CLOSE           // 需要关闭窗户
+} Window_Flag;
 
-/* 光照控制模式 */
+/* 窗帘控制标志 */
 typedef enum {
-    LIGHT_MODE_AUTO = 0,      // 自动模式
-    LIGHT_MODE_MANUAL         // 手动模式
-} LightCtrl_Mode;
+    CURTAIN_FLAG_NONE = 0,      // 无动作
+    CURTAIN_FLAG_OPEN,          // 需要打开窗帘
+    CURTAIN_FLAG_CLOSE          // 需要关闭窗帘
+} Curtain_Flag;
 
-/* 光照控制句柄结构体 */
+/* 控制模式 */
+typedef enum {
+    LIGHT_MODE_AUTO = 0,        // 自动模式
+    LIGHT_MODE_MANUAL           // 手动模式
+} Light_Mode;
+
+/* ==================== 光照阈值配置 ==================== */
+
+#define LUX_WINDOW_OPEN_TH      500.0f      // 窗户打开阈值 (光照低于此值)
+#define LUX_WINDOW_CLOSE_TH     2000.0f     // 窗户关闭阈值 (光照高于此值)
+#define LUX_CURTAIN_OPEN_TH     300.0f      // 窗帘打开阈值 (光照低于此值)
+#define LUX_CURTAIN_CLOSE_TH    1500.0f     // 窗帘关闭阈值 (光照高于此值)
+#define LUX_HYSTERESIS          50.0f       // 滞后量 (防止频繁切换)
+
+/* ==================== 光照控制句柄 ==================== */
+
 typedef struct {
-    BH1750_HandleTypeDef *hbh1750;    // BH1750 传感器句柄
-    float lux_threshold_high;          // 光照上限阈值 (lx) - 超过则关闭窗帘
-    float lux_threshold_low;           // 光照下限阈值 (lx) - 低于则打开窗帘
-    float current_lux;                 // 当前光照值
-    LightCtrl_State state;             // 当前状态
-    LightCtrl_Mode mode;               // 控制模式
-    uint8_t hysteresis;                // 滞后量 (防止频繁切换)
-} LightCtrl_HandleTypeDef;
+    BH1750_HandleTypeDef *hbh1750;      // BH1750 传感器句柄
+    float current_lux;                   // 当前光照值 (lx)
 
-/* 函数声明 */
+    /* 阈值配置 */
+    float window_open_th;                // 窗户打开阈值
+    float window_close_th;               // 窗户关闭阈值
+    float curtain_open_th;               // 窗帘打开阈值
+    float curtain_close_th;              // 窗帘关闭阈值
+    float hysteresis;                    // 滞后量
 
-/**
- * @brief  初始化光照控制模块
- * @param  hlctrl: 光照控制句柄指针
- * @param  hbh1750: BH1750 传感器句柄指针
- * @param  threshold_high: 光照上限阈值 (lx)
- * @param  threshold_low: 光照下限阈值 (lx)
- * @retval None
- */
-void LightCtrl_Init(LightCtrl_HandleTypeDef *hlctrl, BH1750_HandleTypeDef *hbh1750,
-                    float threshold_high, float threshold_low);
+    /* 控制标志位 */
+    Window_Flag window_flag;             // 窗户控制标志
+    Curtain_Flag curtain_flag;           // 窗帘控制标志
 
-/**
- * @brief  光照控制处理函数 (需在主循环中调用)
- * @param  hlctrl: 光照控制句柄指针
- * @retval None
- */
-void LightCtrl_Process(LightCtrl_HandleTypeDef *hlctrl);
+    /* 当前状态 (用于滞后判断) */
+    uint8_t window_is_open;              // 窗户当前是否打开
+    uint8_t curtain_is_open;             // 窗帘当前是否打开
 
-/**
- * @brief  设置光照阈值
- * @param  hlctrl: 光照控制句柄指针
- * @param  threshold_high: 光照上限阈值 (lx)
- * @param  threshold_low: 光照下限阈值 (lx)
- * @retval None
- */
-void LightCtrl_SetThreshold(LightCtrl_HandleTypeDef *hlctrl,
-                            float threshold_high, float threshold_low);
+    /* 控制模式 */
+    Light_Mode mode;                     // 自动/手动模式
+
+    /* 更新时间控制 */
+    uint32_t last_read_tick;             // 上次读取时间
+    uint16_t read_interval;              // 读取间隔 (ms)
+} LightSensor_HandleTypeDef;
+
+/* ==================== 函数声明 ==================== */
 
 /**
- * @brief  设置控制模式
- * @param  hlctrl: 光照控制句柄指针
- * @param  mode: 控制模式 (LIGHT_MODE_AUTO / LIGHT_MODE_MANUAL)
- * @retval None
+ * @brief  初始化光照传感器模块
+ * @param  hlsensor: 光照传感器句柄
+ * @param  hbh1750: BH1750 句柄
  */
-void LightCtrl_SetMode(LightCtrl_HandleTypeDef *hlctrl, LightCtrl_Mode mode);
+void LightSensor_Init(LightSensor_HandleTypeDef *hlsensor, BH1750_HandleTypeDef *hbh1750);
 
 /**
- * @brief  手动打开窗帘
- * @param  hlctrl: 光照控制句柄指针
- * @retval None
+ * @brief  光照传感器处理函数 (主循环调用)
+ * @param  hlsensor: 光照传感器句柄
+ * @note   读取光照值并更新控制标志位
  */
-void LightCtrl_OpenCurtain(LightCtrl_HandleTypeDef *hlctrl);
-
-/**
- * @brief  手动关闭窗帘
- * @param  hlctrl: 光照控制句柄指针
- * @retval None
- */
-void LightCtrl_CloseCurtain(LightCtrl_HandleTypeDef *hlctrl);
-
-/**
- * @brief  停止窗帘运动
- * @param  hlctrl: 光照控制句柄指针
- * @retval None
- */
-void LightCtrl_StopCurtain(LightCtrl_HandleTypeDef *hlctrl);
+void LightSensor_Process(LightSensor_HandleTypeDef *hlsensor);
 
 /**
  * @brief  获取当前光照值
- * @param  hlctrl: 光照控制句柄指针
- * @retval 当前光照值 (lx)
+ * @param  hlsensor: 光照传感器句柄
+ * @return 光照值 (lx)
  */
-float LightCtrl_GetLux(LightCtrl_HandleTypeDef *hlctrl);
+float LightSensor_GetLux(LightSensor_HandleTypeDef *hlsensor);
 
 /**
- * @brief  获取当前状态
- * @param  hlctrl: 光照控制句柄指针
- * @retval 当前状态
+ * @brief  获取窗户控制标志
+ * @param  hlsensor: 光照传感器句柄
+ * @return 窗户控制标志
  */
-LightCtrl_State LightCtrl_GetState(LightCtrl_HandleTypeDef *hlctrl);
+Window_Flag LightSensor_GetWindowFlag(LightSensor_HandleTypeDef *hlsensor);
+
+/**
+ * @brief  获取窗帘控制标志
+ * @param  hlsensor: 光照传感器句柄
+ * @return 窗帘控制标志
+ */
+Curtain_Flag LightSensor_GetCurtainFlag(LightSensor_HandleTypeDef *hlsensor);
+
+/**
+ * @brief  清除窗户控制标志 (电机处理完后调用)
+ * @param  hlsensor: 光照传感器句柄
+ */
+void LightSensor_ClearWindowFlag(LightSensor_HandleTypeDef *hlsensor);
+
+/**
+ * @brief  清除窗帘控制标志 (电机处理完后调用)
+ * @param  hlsensor: 光照传感器句柄
+ */
+void LightSensor_ClearCurtainFlag(LightSensor_HandleTypeDef *hlsensor);
+
+/**
+ * @brief  设置控制模式
+ * @param  hlsensor: 光照传感器句柄
+ * @param  mode: 控制模式
+ */
+void LightSensor_SetMode(LightSensor_HandleTypeDef *hlsensor, Light_Mode mode);
+
+/**
+ * @brief  设置光照阈值
+ * @param  hlsensor: 光照传感器句柄
+ * @param  window_open: 窗户打开阈值
+ * @param  window_close: 窗户关闭阈值
+ * @param  curtain_open: 窗帘打开阈值
+ * @param  curtain_close: 窗帘关闭阈值
+ */
+void LightSensor_SetThreshold(LightSensor_HandleTypeDef *hlsensor,
+                               float window_open, float window_close,
+                               float curtain_open, float curtain_close);
+
+/**
+ * @brief  更新窗户状态 (电机完成动作后调用)
+ * @param  hlsensor: 光照传感器句柄
+ * @param  is_open: 是否打开
+ */
+void LightSensor_UpdateWindowState(LightSensor_HandleTypeDef *hlsensor, uint8_t is_open);
+
+/**
+ * @brief  更新窗帘状态 (电机完成动作后调用)
+ * @param  hlsensor: 光照传感器句柄
+ * @param  is_open: 是否打开
+ */
+void LightSensor_UpdateCurtainState(LightSensor_HandleTypeDef *hlsensor, uint8_t is_open);
 
 #ifdef __cplusplus
 }

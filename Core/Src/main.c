@@ -53,9 +53,11 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 
-BH1750_HandleTypeDef hbh1750;  // BH1750 句柄
-MotorCtrl_HandleTypeDef hmotor;
-float lux_value = 0;           // 光强度值
+BH1750_HandleTypeDef hbh1750;              // BH1750 传感器句柄
+LightSensor_HandleTypeDef hlsensor;        // 光照传感器模块句柄
+MotorCtrl_HandleTypeDef hmotor;            // 电机控制句柄
+
+float g_light_lux = 0.0f;                  // 全局光照值 (lx)，用于监视传感器
 
 /* USER CODE END PV */
 
@@ -111,14 +113,16 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
- // 初始化 BH1750 光强度传感器
+  // 初始化 BH1750 光强度传感器
   if (BH1750_Init(&hbh1750, &hi2c1, BH1750_ADDR_LOW) != HAL_OK) {
     // BH1750 初始化失败处理
-    // 可以在这里添加错误指示 (如点亮 LED)
   }
 
+  // 初始化光照传感器模块
+  LightSensor_Init(&hlsensor, &hbh1750);
+
   // 初始化电机控制系统
-  Motor_Init(&hmotor, &hbh1750);
+  Motor_Init(&hmotor, &hlsensor);
 
   /* USER CODE END 2 */
 
@@ -128,11 +132,27 @@ int main(void)
   {
     /* USER CODE END WHILE */
 
-    // 电机控制处理 (内部包含光照读取和自动控制逻辑)
+    // 光照传感器处理 (读取光照值，更新标志位)
+    LightSensor_Process(&hlsensor);
+
+    // 更新全局光照值，用于监视
+    g_light_lux = LightSensor_GetLux(&hlsensor);
+
+    // 电机控制处理 (根据标志位控制电机)
     Motor_Process(&hmotor);
 
-    // 获取当前光照值用于显示或其他用途
-    lux_value = Motor_GetCurrentLux(&hmotor);
+    // 更新窗户/窗帘状态反馈给光照模块
+    if (Motor_GetWindowState(&hmotor) == MOTOR_OPEN) {
+      LightSensor_UpdateWindowState(&hlsensor, 1);
+    } else if (Motor_GetWindowState(&hmotor) == MOTOR_CLOSED) {
+      LightSensor_UpdateWindowState(&hlsensor, 0);
+    }
+
+    if (Motor_GetCurtainState(&hmotor) == MOTOR_OPEN) {
+      LightSensor_UpdateCurtainState(&hlsensor, 1);
+    } else if (Motor_GetCurtainState(&hmotor) == MOTOR_CLOSED) {
+      LightSensor_UpdateCurtainState(&hlsensor, 0);
+    }
 
     /* USER CODE BEGIN 3 */
   }
