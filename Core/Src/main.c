@@ -107,6 +107,7 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
   MQ135_init(&hadc1);
 
   /* USER CODE END 2 */
