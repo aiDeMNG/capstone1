@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "motor.h"
+#include "gy_30.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -51,6 +52,9 @@ DMA_HandleTypeDef hdma_usart1_rx;
 DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
+
+BH1750_HandleTypeDef hbh1750;  // BH1750 句柄
+float lux_value = 0;           // 光强度值
 
 /* USER CODE END PV */
 
@@ -106,6 +110,11 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+ // 初始化 BH1750 光强度传感器
+  if (BH1750_Init(&hbh1750, &hi2c1, BH1750_ADDR_LOW) != HAL_OK) {
+    // BH1750 初始化失败处理
+    // 可以在这里添加错误指示 (如点亮 LED)
+  }
 
   /* USER CODE END 2 */
 
@@ -114,6 +123,13 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
+// 读取光强度值
+    if (BH1750_ReadLight(&hbh1750, &lux_value) == HAL_OK) {
+      // 可以通过 UART 发送或其他方式使用 lux_value
+      // 示例: printf("Light: %.1f lx\n", lux_value);
+    }
+    HAL_Delay(500);  // 延时 500ms
+  
 
     /* USER CODE BEGIN 3 */
   }
