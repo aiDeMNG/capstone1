@@ -50,6 +50,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_SOURCE_DIR}/Application/Src/example.c
     ${CMAKE_SOURCE_DIR}/Application/Src/MQ135.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/HC05.c
 )
 
 # Add include paths
