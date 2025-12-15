@@ -69,6 +69,7 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static uint8_t air_is_bad = 0;
 
 /* USER CODE END 0 */
 
@@ -115,6 +116,7 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    air_is_bad = air_quality_is_bad();
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */

@@ -22,8 +22,8 @@ uint16_t get_MQ135_voltage() {
 }
 
 uint8_t air_quality_is_bad() {
-    uint16_t voltage = get_MQ135_voltage();
-    if (voltage > 3000) 
+    uint16_t raw = get_MQ135_raw();
+    if (raw > 2000) 
         return 1;
     else
         return 0;
