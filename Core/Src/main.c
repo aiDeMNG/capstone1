@@ -54,6 +54,7 @@ DMA_HandleTypeDef hdma_usart1_tx;
 /* USER CODE BEGIN PV */
 
 BH1750_HandleTypeDef hbh1750;  // BH1750 句柄
+MotorCtrl_HandleTypeDef hmotor;
 float lux_value = 0;           // 光强度值
 
 /* USER CODE END PV */
@@ -116,6 +117,9 @@ int main(void)
     // 可以在这里添加错误指示 (如点亮 LED)
   }
 
+  // 初始化电机控制系统
+  Motor_Init(&hmotor, &hbh1750);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -123,13 +127,12 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-// 读取光强度值
-    if (BH1750_ReadLight(&hbh1750, &lux_value) == HAL_OK) {
-      // 可以通过 UART 发送或其他方式使用 lux_value
-      // 示例: printf("Light: %.1f lx\n", lux_value);
-    }
-    HAL_Delay(500);  // 延时 500ms
-  
+
+    // 电机控制处理 (内部包含光照读取和自动控制逻辑)
+    Motor_Process(&hmotor);
+
+    // 获取当前光照值用于显示或其他用途
+    lux_value = Motor_GetCurrentLux(&hmotor);
 
     /* USER CODE BEGIN 3 */
   }
