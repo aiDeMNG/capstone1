@@ -251,6 +251,32 @@ static int DHT_ReadSensor(DHT_DataTypeDef *dht, GPIO_TypeDef* GPIOx, uint16_t GP
     return DHTLIB_OK;
 }
 
+// User
+static uint32_t last_dht_time = 0;
+static DHT_DataTypeDef dht22;
+static double humidity = 0;
+static double temperature = 0;
+
+uint8_t DHT22_update(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin) {
+    if (HAL_GetTick() - last_dht_time >= 2000) {
+        if (DHT_Read22(&dht22, GPIOx, GPIO_Pin) == DHTLIB_OK) {
+            humidity = dht22.humidity;
+            temperature = dht22.temperature;
+        }
+        last_dht_time = HAL_GetTick();
+        return 1;
+    }
+    return 0;
+}
+
+double get_humidity() {
+    return humidity;
+}
+
+double get_temperature() {
+    return temperature;
+}
+
 //
 // END OF FILE
 //
