@@ -68,6 +68,11 @@ int DHT_Read(DHT_DataTypeDef *dht, GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);
 /* Microsecond delay using DWT (Data Watchpoint and Trace) */
 void DWT_Delay_us(uint32_t us);
 
+// user function
+uint8_t DHT22_update(GPIO_TypeDef* GPIOx, uint16_t GPIO_Pin);
+double get_humidity();
+double get_temperature();
+
 #ifdef __cplusplus
 }
 #endif
