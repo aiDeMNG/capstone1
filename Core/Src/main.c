@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "MQ135.h"
+#include "dht.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -69,7 +70,11 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-static uint8_t air_is_bad = 0;
+uint8_t air_is_bad = 0;
+DHT_DataTypeDef dht22;
+double humidity = 0;
+double temperature = 0;
+uint32_t last_dht_time = 0;
 
 /* USER CODE END 0 */
 
@@ -118,6 +123,14 @@ int main(void)
   while (1)
   {
     air_is_bad = air_quality_is_bad();
+
+    if (HAL_GetTick() - last_dht_time >= 2000) {
+          if (DHT_Read22(&dht22, DHT22_GPIO_Port, DHT22_Pin) == DHTLIB_OK) {
+              humidity = dht22.humidity;
+              temperature = dht22.temperature;
+          }
+          last_dht_time = HAL_GetTick();
+      }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
