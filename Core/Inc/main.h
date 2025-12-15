@@ -81,7 +81,10 @@ void Error_Handler(void);
 #define motor2A12_GPIO_Port GPIOA
 
 /* USER CODE BEGIN Private defines */
-
+#define HC05_TX_Pin GPIO_PIN_6
+#define HC05_TX_GPIO_Port GPIOB
+#define HC05_RX_Pin GPIO_PIN_7
+#define HC05_RX_GPIO_Port GPIOB
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
