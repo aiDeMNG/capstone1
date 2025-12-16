@@ -42,7 +42,7 @@ static void ceshi_uln2003_rotate(int32_t steps);
 static void ceshi_a4988_init(void);
 static void ceshi_a4988_set_dir(uint8_t dir);
 static void ceshi_a4988_step(void);
-static void ceshi_a4988_rotate(int32_t steps, uint8_t dir);
+static void ceshi_a4988_rotate(uint32_t steps, uint8_t dir);
 
 /* ==================== 公共函数实现 ==================== */
 

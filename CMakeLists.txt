@@ -51,6 +51,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Application/Src/example.c
     ${CMAKE_SOURCE_DIR}/Application/Src/motor.c
     ${CMAKE_SOURCE_DIR}/Application/Src/gy_30.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/ceshi.c
     ${CMAKE_SOURCE_DIR}/Core/Src/bh1750.c
 )
 
