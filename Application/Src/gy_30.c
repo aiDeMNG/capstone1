@@ -20,19 +20,19 @@ void LightSensor_Init(LightSensor_HandleTypeDef *hlsensor, BH1750_HandleTypeDef 
     hlsensor->current_lux = 0;
 
     /* 默认阈值 */
-    hlsensor->window_open_th = LUX_WINDOW_OPEN_TH;
-    hlsensor->window_close_th = LUX_WINDOW_CLOSE_TH;
-    hlsensor->curtain_open_th = LUX_CURTAIN_OPEN_TH;
-    hlsensor->curtain_close_th = LUX_CURTAIN_CLOSE_TH;
+    hlsensor->window_high_th = LUX_WINDOW_HIGH_TH;
+    hlsensor->window_low_th = LUX_WINDOW_LOW_TH;
+    hlsensor->curtain_high_th = LUX_CURTAIN_HIGH_TH;
+    hlsensor->curtain_low_th = LUX_CURTAIN_LOW_TH;
     hlsensor->hysteresis = LUX_HYSTERESIS;
 
     /* 清除标志位 */
     hlsensor->window_flag = WINDOW_FLAG_NONE;
     hlsensor->curtain_flag = CURTAIN_FLAG_NONE;
 
-    /* 初始状态 */
-    hlsensor->window_is_open = 0;
-    hlsensor->curtain_is_open = 0;
+    /* 初始状态 - 假设初始都是关闭状态 */
+    hlsensor->window_current_state = WINDOW_FLAG_CLOSE;
+    hlsensor->curtain_current_state = CURTAIN_FLAG_CLOSE;
 
     /* 自动模式 */
     hlsensor->mode = LIGHT_MODE_AUTO;
@@ -45,6 +45,8 @@ void LightSensor_Init(LightSensor_HandleTypeDef *hlsensor, BH1750_HandleTypeDef 
 /**
  * @brief  光照传感器处理函数
  * @note   读取光照值，根据阈值设置控制标志位
+ *         窗户三态：强光关窗、适中开窗、夜晚关窗
+ *         窗帘三态：强光全关、适中半开、弱光全开
  */
 void LightSensor_Process(LightSensor_HandleTypeDef *hlsensor)
 {
@@ -70,30 +72,44 @@ void LightSensor_Process(LightSensor_HandleTypeDef *hlsensor)
         return;
     }
 
-    /* ========== 窗户控制逻辑 ========== */
-    if (hlsensor->window_is_open) {
-        /* 窗户已打开，检查是否需要关闭 */
-        if (hlsensor->current_lux > hlsensor->window_close_th + hlsensor->hysteresis) {
-            hlsensor->window_flag = WINDOW_FLAG_CLOSE;
-        }
-    } else {
-        /* 窗户已关闭，检查是否需要打开 */
-        if (hlsensor->current_lux < hlsensor->window_open_th - hlsensor->hysteresis) {
-            hlsensor->window_flag = WINDOW_FLAG_OPEN;
-        }
+    /* ========== 窗户控制逻辑（三态）========== */
+    Window_Flag window_target = WINDOW_FLAG_NONE;
+
+    if (hlsensor->current_lux > hlsensor->window_high_th + hlsensor->hysteresis) {
+        /* 强光 → 关窗 */
+        window_target = WINDOW_FLAG_CLOSE;
+    } else if (hlsensor->current_lux < hlsensor->window_low_th - hlsensor->hysteresis) {
+        /* 夜晚 → 关窗 */
+        window_target = WINDOW_FLAG_CLOSE;
+    } else if (hlsensor->current_lux > hlsensor->window_low_th + hlsensor->hysteresis &&
+               hlsensor->current_lux < hlsensor->window_high_th - hlsensor->hysteresis) {
+        /* 适中光照 → 开窗 */
+        window_target = WINDOW_FLAG_OPEN;
     }
 
-    /* ========== 窗帘控制逻辑 ========== */
-    if (hlsensor->curtain_is_open) {
-        /* 窗帘已打开，检查是否需要关闭 */
-        if (hlsensor->current_lux > hlsensor->curtain_close_th + hlsensor->hysteresis) {
-            hlsensor->curtain_flag = CURTAIN_FLAG_CLOSE;
-        }
-    } else {
-        /* 窗帘已关闭，检查是否需要打开 */
-        if (hlsensor->current_lux < hlsensor->curtain_open_th - hlsensor->hysteresis) {
-            hlsensor->curtain_flag = CURTAIN_FLAG_OPEN;
-        }
+    /* 仅在状态变化时设置标志位 */
+    if (window_target != WINDOW_FLAG_NONE && window_target != hlsensor->window_current_state) {
+        hlsensor->window_flag = window_target;
+    }
+
+    /* ========== 窗帘控制逻辑（三态）========== */
+    Curtain_Flag curtain_target = CURTAIN_FLAG_NONE;
+
+    if (hlsensor->current_lux > hlsensor->curtain_high_th + hlsensor->hysteresis) {
+        /* 强光 → 全关 */
+        curtain_target = CURTAIN_FLAG_CLOSE;
+    } else if (hlsensor->current_lux < hlsensor->curtain_low_th - hlsensor->hysteresis) {
+        /* 弱光 → 全开 */
+        curtain_target = CURTAIN_FLAG_OPEN;
+    } else if (hlsensor->current_lux > hlsensor->curtain_low_th + hlsensor->hysteresis &&
+               hlsensor->current_lux < hlsensor->curtain_high_th - hlsensor->hysteresis) {
+        /* 适中光照 → 半开 */
+        curtain_target = CURTAIN_FLAG_HALF;
+    }
+
+    /* 仅在状态变化时设置标志位 */
+    if (curtain_target != CURTAIN_FLAG_NONE && curtain_target != hlsensor->curtain_current_state) {
+        hlsensor->curtain_flag = curtain_target;
     }
 }
 
@@ -173,36 +189,36 @@ void LightSensor_SetMode(LightSensor_HandleTypeDef *hlsensor, Light_Mode mode)
  * @brief  设置光照阈值
  */
 void LightSensor_SetThreshold(LightSensor_HandleTypeDef *hlsensor,
-                               float window_open, float window_close,
-                               float curtain_open, float curtain_close)
+                               float window_high, float window_low,
+                               float curtain_high, float curtain_low)
 {
     if (hlsensor == NULL) {
         return;
     }
-    hlsensor->window_open_th = window_open;
-    hlsensor->window_close_th = window_close;
-    hlsensor->curtain_open_th = curtain_open;
-    hlsensor->curtain_close_th = curtain_close;
+    hlsensor->window_high_th = window_high;
+    hlsensor->window_low_th = window_low;
+    hlsensor->curtain_high_th = curtain_high;
+    hlsensor->curtain_low_th = curtain_low;
 }
 
 /**
  * @brief  更新窗户状态
  */
-void LightSensor_UpdateWindowState(LightSensor_HandleTypeDef *hlsensor, uint8_t is_open)
+void LightSensor_UpdateWindowState(LightSensor_HandleTypeDef *hlsensor, Window_Flag state)
 {
     if (hlsensor == NULL) {
         return;
     }
-    hlsensor->window_is_open = is_open;
+    hlsensor->window_current_state = state;
 }
 
 /**
  * @brief  更新窗帘状态
  */
-void LightSensor_UpdateCurtainState(LightSensor_HandleTypeDef *hlsensor, uint8_t is_open)
+void LightSensor_UpdateCurtainState(LightSensor_HandleTypeDef *hlsensor, Curtain_Flag state)
 {
     if (hlsensor == NULL) {
         return;
     }
-    hlsensor->curtain_is_open = is_open;
+    hlsensor->curtain_current_state = state;
 }

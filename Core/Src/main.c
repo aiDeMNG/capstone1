@@ -1,27 +1,27 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.c
-  * @brief          : Main program body
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "motor.h"
+#include "motor_uln2003.h"
 #include "gy_30.h"
 /* USER CODE END Includes */
 
@@ -53,11 +53,12 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 
-BH1750_HandleTypeDef hbh1750;              // BH1750 传感器句柄
-LightSensor_HandleTypeDef hlsensor;        // 光照传感器模块句柄
-MotorCtrl_HandleTypeDef hmotor;            // 电机控制句柄
+BH1750_HandleTypeDef hbh1750;       // BH1750 传感器句柄
+LightSensor_HandleTypeDef hlsensor; // 光照传感器模块句柄
+Motor_ULN2003_HandleTypeDef motor1; // 电机1 - 窗户（相对模式）
+Motor_ULN2003_HandleTypeDef motor2; // 电机2 - 窗帘（位置模式）
 
-float g_light_lux = 0.0f;                  // 全局光照值 (lx)，用于监视传感器
+float g_light_lux = 0.0f; // 全局光照值 (lx)，用于监视传感器
 
 /* USER CODE END PV */
 
@@ -79,9 +80,9 @@ static void MX_USART1_UART_Init(void);
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -114,15 +115,33 @@ int main(void)
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   // 初始化 BH1750 光强度传感器
-  if (BH1750_Init(&hbh1750, &hi2c1, BH1750_ADDR_LOW) != HAL_OK) {
+  if (BH1750_Init(&hbh1750, &hi2c1, BH1750_ADDR_LOW) != HAL_OK)
+  {
     // BH1750 初始化失败处理
   }
 
   // 初始化光照传感器模块
   LightSensor_Init(&hlsensor, &hbh1750);
 
-  // 初始化电机控制系统
-  Motor_Init(&hmotor, &hlsensor);
+  // 初始化电机1 (Motor1: ULN2003, PA2, PA3, PA4, PA5) - 窗户控制（相对模式）
+  Motor_ULN2003_Init(&motor1,
+                     GPIOA,
+                     motor1_Pin,                                // PA2 - IN1
+                     motor1A3_Pin,                              // PA3 - IN2
+                     motor1A4_Pin,                              // PA4 - IN3
+                     motor1A5_Pin);                             // PA5 - IN4
+  Motor_ULN2003_SetMode(&motor1, MOTOR_MODE_RELATIVE);          // 相对模式
+  Motor_ULN2003_SetRelativeSteps(&motor1, MOTOR_STEPS_QUARTER); // 1/4圈
+
+  // 初始化电机2 (Motor2: ULN2003, PA8, PA9, PA10, PA11) - 窗帘控制（位置模式）
+  Motor_ULN2003_Init(&motor2,
+                     GPIOA,
+                     motor2_Pin,                           // PA8  - IN1
+                     motor2A9_Pin,                         // PA9  - IN2
+                     motor2A10_Pin,                        // PA10 - IN3
+                     motor2A11_Pin);                       // PA11 - IN4
+  Motor_ULN2003_SetMode(&motor2, MOTOR_MODE_POSITION);     // 位置模式
+  Motor_ULN2003_SetMaxPosition(&motor2, MOTOR_STEPS_FULL); // 最大1圈
 
   /* USER CODE END 2 */
 
@@ -139,19 +158,54 @@ int main(void)
     g_light_lux = LightSensor_GetLux(&hlsensor);
 
     // 电机控制处理 (根据标志位控制电机)
-    Motor_Process(&hmotor);
-
-    // 更新窗户/窗帘状态反馈给光照模块
-    if (Motor_GetWindowState(&hmotor) == MOTOR_OPEN) {
-      LightSensor_UpdateWindowState(&hlsensor, 1);
-    } else if (Motor_GetWindowState(&hmotor) == MOTOR_CLOSED) {
-      LightSensor_UpdateWindowState(&hlsensor, 0);
+    // 处理窗户电机 (motor1) - 相对模式（开/关）
+    Window_Flag wflag = LightSensor_GetWindowFlag(&hlsensor);
+    if (wflag == WINDOW_FLAG_OPEN && motor1.state != MOTOR_ULN2003_OPENING)
+    {
+      Motor_ULN2003_Open(&motor1);
+      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_OPEN);
+      LightSensor_ClearWindowFlag(&hlsensor);
+    }
+    else if (wflag == WINDOW_FLAG_CLOSE && motor1.state != MOTOR_ULN2003_CLOSING)
+    {
+      Motor_ULN2003_Close(&motor1);
+      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_CLOSE);
+      LightSensor_ClearWindowFlag(&hlsensor);
     }
 
-    if (Motor_GetCurtainState(&hmotor) == MOTOR_OPEN) {
-      LightSensor_UpdateCurtainState(&hlsensor, 1);
-    } else if (Motor_GetCurtainState(&hmotor) == MOTOR_CLOSED) {
-      LightSensor_UpdateCurtainState(&hlsensor, 0);
+    // 处理窗帘电机 (motor2) - 位置模式（全开/半开/全关）
+    Curtain_Flag cflag = LightSensor_GetCurtainFlag(&hlsensor);
+    if (cflag == CURTAIN_FLAG_OPEN && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != 0)
+    {
+      Motor_ULN2003_MoveToOpen(&motor2);
+      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_OPEN);
+      LightSensor_ClearCurtainFlag(&hlsensor);
+    }
+    else if (cflag == CURTAIN_FLAG_HALF && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != motor2.max_position / 2)
+    {
+      Motor_ULN2003_MoveToHalf(&motor2);
+      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_HALF);
+      LightSensor_ClearCurtainFlag(&hlsensor);
+    }
+    else if (cflag == CURTAIN_FLAG_CLOSE && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != motor2.max_position)
+    {
+      Motor_ULN2003_MoveToClose(&motor2);
+      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_CLOSE);
+      LightSensor_ClearCurtainFlag(&hlsensor);
+    }
+
+    // 执行电机步进（统一调用Process函数，内部根据模式自动处理）
+    Motor_ULN2003_Process(&motor1); // 窗户电机（相对模式）
+    Motor_ULN2003_Process(&motor2); // 窗帘电机（位置模式）
+
+    // 更新窗户状态反馈给光照模块
+    if (Motor_ULN2003_GetState(&motor1) == MOTOR_ULN2003_OPEN)
+    {
+      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_OPEN);
+    }
+    else if (Motor_ULN2003_GetState(&motor1) == MOTOR_ULN2003_CLOSED)
+    {
+      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_CLOSE);
     }
 
     /* USER CODE BEGIN 3 */
@@ -160,9 +214,9 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -170,8 +224,8 @@ void SystemClock_Config(void)
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -185,9 +239,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -206,10 +259,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_ADC1_Init(void)
 {
 
@@ -224,7 +277,7 @@ static void MX_ADC1_Init(void)
   /* USER CODE END ADC1_Init 1 */
 
   /** Common config
-  */
+   */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.ContinuousConvMode = DISABLE;
@@ -238,7 +291,7 @@ static void MX_ADC1_Init(void)
   }
 
   /** Configure Regular Channel
-  */
+   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
@@ -249,14 +302,13 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_I2C1_Init(void)
 {
 
@@ -283,14 +335,13 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM2_Init(void)
 {
 
@@ -305,9 +356,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 73-1;
+  htim2.Init.Prescaler = 73 - 1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1001-1;
+  htim2.Init.Period = 1001 - 1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
@@ -332,14 +383,13 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
-
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
 
@@ -365,12 +415,11 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
+ * Enable DMA controller clock
+ */
 static void MX_DMA_Init(void)
 {
 
@@ -384,14 +433,13 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -405,9 +453,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, motor1_Pin|motor1A3_Pin|motor1A4_Pin|motor1A5_Pin
-                          |motor2_Pin|motor2A9_Pin|motor2A10_Pin|motor2A11_Pin
-                          |motor2A12_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(DHT22_GPIO_Port, DHT22_Pin, GPIO_PIN_SET);
@@ -415,9 +461,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : motor1_Pin motor1A3_Pin motor1A4_Pin motor1A5_Pin
                            motor2_Pin motor2A9_Pin motor2A10_Pin motor2A11_Pin
                            motor2A12_Pin */
-  GPIO_InitStruct.Pin = motor1_Pin|motor1A3_Pin|motor1A4_Pin|motor1A5_Pin
-                          |motor2_Pin|motor2A9_Pin|motor2A10_Pin|motor2A11_Pin
-                          |motor2A12_Pin;
+  GPIO_InitStruct.Pin = motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -440,9 +484,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -454,14 +498,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

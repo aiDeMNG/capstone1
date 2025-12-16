@@ -49,7 +49,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_SOURCE_DIR}/Application/Src/example.c
-    ${CMAKE_SOURCE_DIR}/Application/Src/motor.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/motor_uln2003.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/motor_a4988.c
     ${CMAKE_SOURCE_DIR}/Application/Src/gy_30.c
     ${CMAKE_SOURCE_DIR}/Core/Src/bh1750.c
 )
