@@ -1,10 +1,13 @@
 /**
  * @file    motor.h
  * @brief   步进电机驱动模块
- * @note    控制两个步进电机:
- *          - Motor1 (窗户): PA2, PA3, PA4, PA5
- *          - Motor2 (窗帘): PA8, PA9, PA10, PA11
- *          根据 gy_30 模块的标志位控制电机
+ * @note    控制两个步进电机 (均使用42步进电机):
+ *          - Motor1 (窗户): ULN2003驱动板, PA2, PA3, PA4, PA5
+ *          - Motor2 (窗帘): A4988驱动板, PA8(STEP), PA9(DIR), PA10(MS1), PA11(MS2), PA12(MS3)
+ *          EN引脚接地(常使能), 根据 gy_30 模块的标志位控制电机
+ *
+ *          A4988细分模式 (当前使用1/16步进):
+ *          MS1=H, MS2=H, MS3=H -> 1/16步进 (3200步/圈)
  */
 
 #ifndef __MOTOR_H
@@ -20,9 +23,19 @@ extern "C" {
 
 /* ==================== 电机参数配置 ==================== */
 
-#define MOTOR_PHASE_COUNT       8       // 相位数 (4相8拍)
-#define MOTOR_STEPS_FULL        2048    // 全开/全关所需步数
-#define MOTOR_STEP_DELAY_MS     2       // 步进延时 (ms)
+#define MOTOR_PHASE_COUNT       8       // ULN2003相位数 (4相8拍)
+#define MOTOR_STEPS_ULN2003     2048    // ULN2003全开/全关所需步数 (28BYJ-48)
+#define MOTOR_STEPS_A4988       3200    // A4988全开/全关所需步数 (1/16细分, 200*16=3200步/圈)
+#define MOTOR_STEP_DELAY_MS     2       // ULN2003步进延时 (ms)
+#define MOTOR_A4988_DELAY_US    500     // A4988步进延时 (us)
+#define MOTOR_A4988_PULSE_US    10      // A4988脉冲宽度 (us)
+
+/* ==================== 驱动类型定义 ==================== */
+
+typedef enum {
+    DRIVER_ULN2003 = 0,     // ULN2003驱动 (4相8拍)
+    DRIVER_A4988            // A4988驱动 (STEP/DIR)
+} Motor_DriverType;
 
 /* ==================== 电机状态定义 ==================== */
 
@@ -34,17 +47,21 @@ typedef enum {
     MOTOR_CLOSED            // 已全关
 } Motor_State;
 
-/* ==================== 单个电机句柄 ==================== */
+/* ==================== 电机句柄 ==================== */
 
 typedef struct {
     Motor_State state;              // 电机状态
-    uint8_t current_phase;          // 当前相位 (0-7)
+    Motor_DriverType driver_type;   // 驱动类型
+    uint8_t current_phase;          // 当前相位 (0-7, 仅ULN2003)
     int32_t step_count;             // 剩余步数
     GPIO_TypeDef *port;             // GPIO端口
-    uint16_t pin_a;                 // A相引脚
-    uint16_t pin_b;                 // B相引脚
-    uint16_t pin_c;                 // C相引脚
-    uint16_t pin_d;                 // D相引脚
+    /* ULN2003引脚: pin_a=IN1, pin_b=IN2, pin_c=IN3, pin_d=IN4 */
+    /* A4988引脚:   pin_a=STEP, pin_b=DIR, pin_c=MS1, pin_d=MS2, pin_ms3=MS3 */
+    uint16_t pin_a;                 // A相引脚 / STEP引脚
+    uint16_t pin_b;                 // B相引脚 / DIR引脚
+    uint16_t pin_c;                 // C相引脚 / MS1引脚
+    uint16_t pin_d;                 // D相引脚 / MS2引脚
+    uint16_t pin_ms3;               // MS3引脚 (仅A4988)
 } Motor_HandleTypeDef;
 
 /* ==================== 电机控制系统句柄 ==================== */
