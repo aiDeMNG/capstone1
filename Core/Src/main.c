@@ -23,6 +23,7 @@
 /* USER CODE BEGIN Includes */
 #include "motor.h"
 #include "gy_30.h"
+#include "ceshi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -130,6 +131,11 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    /* 选择以下任一测试函数 */
+
+          Ceshi_Run();           // 同时测试两个电机
+          // Ceshi_ULN2003_Test();  // 仅测试ULN2003 (窗户)
+          //Ceshi_A4988_Test();       // 仅测试A4988 (窗帘)
     /* USER CODE END WHILE */
 
     // 光照传感器处理 (读取光照值，更新标志位)
