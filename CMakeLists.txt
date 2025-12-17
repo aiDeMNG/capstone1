@@ -53,6 +53,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Application/Src/motor_a4988.c
     ${CMAKE_SOURCE_DIR}/Application/Src/gy_30.c
     ${CMAKE_SOURCE_DIR}/Core/Src/bh1750.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/MQ135.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/HC05.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/dht.c
 )
 
 # Add include paths

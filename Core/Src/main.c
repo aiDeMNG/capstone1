@@ -23,6 +23,10 @@
 /* USER CODE BEGIN Includes */
 #include "motor_uln2003.h"
 #include "gy_30.h"
+#include "MQ135.h"
+#include "dht.h"
+#include "HC05.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,6 +46,7 @@
 
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc1;
+DMA_HandleTypeDef hdma_adc1;
 
 I2C_HandleTypeDef hi2c1;
 
@@ -76,7 +81,9 @@ static void MX_USART1_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+float temp = 0;
+float hum = 0;
+uint32_t last_send_time = 0;
 /* USER CODE END 0 */
 
 /**
@@ -142,14 +149,23 @@ int main(void)
                      motor2A11_Pin);                       // PA11 - IN4
   Motor_ULN2003_SetMode(&motor2, MOTOR_MODE_POSITION);     // 位置模式
   Motor_ULN2003_SetMaxPosition(&motor2, MOTOR_STEPS_FULL); // 最大1圈
+  HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
+  MQ135_init(&hadc1);
+  HC05_Init(&huart1);
 
+  // 发送测试消息验证蓝牙通信
+  HAL_Delay(1000); // 等待1秒让HC-05稳定
+  HC05_SendString("HC05 Init OK\r\n");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    DHT22_update(DHT22_GPIO_Port, DHT22_Pin);
     /* USER CODE END WHILE */
+    temp = get_temperature();
+    hum = get_humidity();
 
     // 光照传感器处理 (读取光照值，更新标志位)
     LightSensor_Process(&hlsensor);
@@ -209,6 +225,20 @@ int main(void)
     }
 
     /* USER CODE BEGIN 3 */
+    // 每2秒发送一次传感器数据
+    if (HAL_GetTick() - last_send_time >= 2000)
+    {
+      char buffer[64];
+      // 将浮点数转换为整数来测试（温度*10，湿度*10）
+      int temp_int = (int)(temp * 10);
+      int hum_int = (int)(hum * 10);
+      sprintf(buffer, "T:%d.%d,H:%d.%d,L:%d,A:%d\r\n",
+              temp_int / 10, temp_int % 10,
+              hum_int / 10, hum_int % 10,
+              500, 95);
+      HC05_SendString(buffer);
+      last_send_time = HAL_GetTick();
+    }
   }
   /* USER CODE END 3 */
 }
@@ -280,7 +310,7 @@ static void MX_ADC1_Init(void)
    */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
-  hadc1.Init.ContinuousConvMode = DISABLE;
+  hadc1.Init.ContinuousConvMode = ENABLE;
   hadc1.Init.DiscontinuousConvMode = DISABLE;
   hadc1.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
@@ -401,7 +431,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 9600;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
@@ -427,6 +457,9 @@ static void MX_DMA_Init(void)
   __HAL_RCC_DMA1_CLK_ENABLE();
 
   /* DMA interrupt init */
+  /* DMA1_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
   /* DMA1_Channel4_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel4_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel4_IRQn);
