@@ -26,6 +26,10 @@
 #include "MQ135.h"
 #include "dht.h"
 #include "HC05.h"
+#include "fan.h"
+#include "air_quality_control.h"
+#include "light_control.h"
+#include "control_priority.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -58,10 +62,13 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 /* USER CODE BEGIN PV */
 
-BH1750_HandleTypeDef hbh1750;       // BH1750 传感器句柄
-LightSensor_HandleTypeDef hlsensor; // 光照传感器模块句柄
-Motor_ULN2003_HandleTypeDef motor1; // 电机1 - 窗户（相对模式）
-Motor_ULN2003_HandleTypeDef motor2; // 电机2 - 窗帘（位置模式）
+BH1750_HandleTypeDef hbh1750;               // BH1750 传感器句柄
+LightSensor_HandleTypeDef hlsensor;         // 光照传感器模块句柄
+Motor_ULN2003_HandleTypeDef motor1;         // 电机1 - 窗户（相对模式）
+Motor_ULN2003_HandleTypeDef motor2;         // 电机2 - 窗帘（位置模式）
+Fan_HandleTypeDef hfan;                     // 风扇句柄
+Air_Quality_Control_HandleTypeDef hAirCtrl; // 空气质量控制句柄
+Light_Control_HandleTypeDef hLightCtrl;     // 光照控制句柄
 
 float g_light_lux = 0.0f; // 全局光照值 (lx)，用于监视传感器
 
@@ -153,6 +160,15 @@ int main(void)
   MQ135_init(&hadc1);
   HC05_Init(&huart1);
 
+  // 初始化风扇 (PA0, TIM2_CH1)
+  Fan_Init(&hfan, GPIOA, GPIO_PIN_0, &htim2, TIM_CHANNEL_1);
+
+  // 初始化空气质量控制模块
+  AirQualityControl_Init(&hAirCtrl, &motor1, &hfan);
+
+  // 初始化光照控制模块
+  LightControl_Init(&hLightCtrl, &hlsensor, &motor1, &motor2);
+
   // 发送测试消息验证蓝牙通信
   HAL_Delay(1000); // 等待1秒让HC-05稳定
   HC05_SendString("HC05 Init OK\r\n");
@@ -167,62 +183,26 @@ int main(void)
     temp = get_temperature();
     hum = get_humidity();
 
+    // ============= 空气质量自动控制（高优先级） =============
+    // 优先处理空气质量，检测并控制通风
+    AirQualityControl_Process(&hAirCtrl, PRIORITY_NONE);
+
+    // 获取空气质量控制的当前优先级
+    Control_Priority air_priority = AirQualityControl_GetPriority(&hAirCtrl);
+
     // 光照传感器处理 (读取光照值，更新标志位)
     LightSensor_Process(&hlsensor);
 
     // 更新全局光照值，用于监视
     g_light_lux = LightSensor_GetLux(&hlsensor);
 
-    // 电机控制处理 (根据标志位控制电机)
-    // 处理窗户电机 (motor1) - 相对模式（开/关）
-    Window_Flag wflag = LightSensor_GetWindowFlag(&hlsensor);
-    if (wflag == WINDOW_FLAG_OPEN && motor1.state != MOTOR_ULN2003_OPENING)
-    {
-      Motor_ULN2003_Open(&motor1);
-      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_OPEN);
-      LightSensor_ClearWindowFlag(&hlsensor);
-    }
-    else if (wflag == WINDOW_FLAG_CLOSE && motor1.state != MOTOR_ULN2003_CLOSING)
-    {
-      Motor_ULN2003_Close(&motor1);
-      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_CLOSE);
-      LightSensor_ClearWindowFlag(&hlsensor);
-    }
-
-    // 处理窗帘电机 (motor2) - 位置模式（全开/半开/全关）
-    Curtain_Flag cflag = LightSensor_GetCurtainFlag(&hlsensor);
-    if (cflag == CURTAIN_FLAG_OPEN && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != 0)
-    {
-      Motor_ULN2003_MoveToOpen(&motor2);
-      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_OPEN);
-      LightSensor_ClearCurtainFlag(&hlsensor);
-    }
-    else if (cflag == CURTAIN_FLAG_HALF && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != motor2.max_position / 2)
-    {
-      Motor_ULN2003_MoveToHalf(&motor2);
-      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_HALF);
-      LightSensor_ClearCurtainFlag(&hlsensor);
-    }
-    else if (cflag == CURTAIN_FLAG_CLOSE && motor2.state != MOTOR_ULN2003_MOVING && motor2.target_position != motor2.max_position)
-    {
-      Motor_ULN2003_MoveToClose(&motor2);
-      LightSensor_UpdateCurtainState(&hlsensor, CURTAIN_FLAG_CLOSE);
-      LightSensor_ClearCurtainFlag(&hlsensor);
-    }
+    // ============= 光照自动控制（低优先级） =============
+    // 处理窗户和窗帘控制，窗户控制会根据优先级被抑制
+    LightControl_Process(&hLightCtrl, air_priority);
 
     // 执行电机步进（统一调用Process函数，内部根据模式自动处理）
     Motor_ULN2003_Process(&motor1); // 窗户电机（相对模式）
     Motor_ULN2003_Process(&motor2); // 窗帘电机（位置模式）
-
-    // 更新窗户状态反馈给光照模块
-    if (Motor_ULN2003_GetState(&motor1) == MOTOR_ULN2003_OPEN)
-    {
-      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_OPEN);
-    }
-    else if (Motor_ULN2003_GetState(&motor1) == MOTOR_ULN2003_CLOSED)
-    {
-      LightSensor_UpdateWindowState(&hlsensor, WINDOW_FLAG_CLOSE);
-    }
 
     /* USER CODE BEGIN 3 */
     // 每2秒发送一次传感器数据
@@ -235,7 +215,7 @@ int main(void)
       sprintf(buffer, "T:%d.%d,H:%d.%d,L:%d,A:%d\r\n",
               temp_int / 10, temp_int % 10,
               hum_int / 10, hum_int % 10,
-              500, 95);
+              (int)g_light_lux, get_MQ135_raw());
       HC05_SendString(buffer);
       last_send_time = HAL_GetTick();
     }

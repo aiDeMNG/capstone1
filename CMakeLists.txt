@@ -56,6 +56,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Application/Src/MQ135.c
     ${CMAKE_SOURCE_DIR}/Application/Src/HC05.c
     ${CMAKE_SOURCE_DIR}/Application/Src/dht.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/fan.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/air_quality_control.c
+    ${CMAKE_SOURCE_DIR}/Application/Src/light_control.c
 )
 
 # Add include paths
