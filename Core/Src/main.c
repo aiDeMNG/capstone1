@@ -30,7 +30,6 @@
 #include "air_quality_control.h"
 #include "temp_humidity_control.h"
 #include "light_control.h"
-#include "manual_control.h"
 #include "control_priority.h"
 #include <stdio.h>
 /* USER CODE END Includes */
@@ -72,7 +71,6 @@ Fan_HandleTypeDef hfan;                           // 风扇句柄
 Air_Quality_Control_HandleTypeDef hAirCtrl;       // 空气质量控制句柄
 Temp_Humidity_Control_HandleTypeDef hTempHumCtrl; // 温湿度控制句柄
 Light_Control_HandleTypeDef hLightCtrl;           // 光照控制句柄
-Manual_Control_HandleTypeDef hManualCtrl;         // 手动控制句柄
 
 float g_light_lux = 0.0f; // 全局光照值 (lx)，用于监视传感器
 
@@ -176,9 +174,6 @@ int main(void)
   // 初始化光照控制模块
   LightControl_Init(&hLightCtrl, &hlsensor, &motor1, &motor2);
 
-  // 初始化手动控制模块
-  ManualControl_Init(&hManualCtrl, &motor1, &motor2, 1); // 启用超时自动退出
-
   // 发送测试消息验证蓝牙通信
   HAL_Delay(1000); // 等待1秒让HC-05稳定
   HC05_SendString("HC05 Init OK\r\n");
@@ -193,32 +188,22 @@ int main(void)
     temp = get_temperature();
     hum = get_humidity();
 
-    // ============= 手动控制（最高优先级） =============
-    // 首先处理上位机手动控制指令
-    ManualControl_Process(&hManualCtrl);
-
-    // 获取手动控制的当前优先级
-    Control_Priority manual_priority = ManualControl_GetPriority(&hManualCtrl);
-
     // ============= 空气质量自动控制（高优先级） =============
-    // 优先处理空气质量，检测并控制通风，会被手动控制抑制
-    AirQualityControl_Process(&hAirCtrl, manual_priority);
+    // 优先处理空气质量，检测并控制通风
+    AirQualityControl_Process(&hAirCtrl, PRIORITY_NONE);
 
     // 获取空气质量控制的当前优先级
     Control_Priority air_priority = AirQualityControl_GetPriority(&hAirCtrl);
 
-    // 计算更高的优先级（手动 vs 空气质量）
-    Control_Priority higher1 = (manual_priority > air_priority) ? manual_priority : air_priority;
-
     // ============= 温湿度自动控制（中优先级） =============
-    // 处理温湿度调节，会被手动控制和空气质量控制抑制
-    TempHumidityControl_Process(&hTempHumCtrl, higher1);
+    // 处理温湿度调节，会被空气质量控制抑制
+    TempHumidityControl_Process(&hTempHumCtrl, air_priority);
 
     // 获取温湿度控制的当前优先级
     Control_Priority temp_hum_priority = TempHumidityControl_GetPriority(&hTempHumCtrl);
 
     // 计算更高的优先级（用于光照控制）
-    Control_Priority higher2 = (higher1 > temp_hum_priority) ? higher1 : temp_hum_priority;
+    Control_Priority higher_priority = (air_priority > temp_hum_priority) ? air_priority : temp_hum_priority;
 
     // 光照传感器处理 (读取光照值，更新标志位)
     LightSensor_Process(&hlsensor);
@@ -228,7 +213,7 @@ int main(void)
 
     // ============= 光照自动控制（低优先级） =============
     // 处理窗户和窗帘控制，窗户控制会根据优先级被抑制
-    LightControl_Process(&hLightCtrl, higher2);
+    LightControl_Process(&hLightCtrl, higher_priority);
 
     // 执行电机步进（统一调用Process函数，内部根据模式自动处理）
     Motor_ULN2003_Process(&motor1); // 窗户电机（相对模式）
