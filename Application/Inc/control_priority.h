@@ -23,7 +23,8 @@ extern "C" {
  */
 typedef enum {
     PRIORITY_NONE = 0,          // 无优先级（空闲状态）
-    PRIORITY_LIGHT,             // 光照控制优先级（低）
+    PRIORITY_LIGHT,             // 光照控制优先级（最低）
+    PRIORITY_TEMP_HUMIDITY,     // 温湿度控制优先级（中）
     PRIORITY_AIR_QUALITY,       // 空气质量控制优先级（高）
     PRIORITY_MANUAL             // 手动控制优先级（最高）
 } Control_Priority;
@@ -46,6 +47,7 @@ static inline const char* Priority_GetName(Control_Priority priority)
     switch(priority) {
         case PRIORITY_NONE:         return "NONE";
         case PRIORITY_LIGHT:        return "LIGHT";
+        case PRIORITY_TEMP_HUMIDITY: return "TEMP_HUMIDITY";
         case PRIORITY_AIR_QUALITY:  return "AIR_QUALITY";
         case PRIORITY_MANUAL:       return "MANUAL";
         default:                    return "UNKNOWN";
