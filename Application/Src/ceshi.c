@@ -3,7 +3,7 @@
  * @brief   电机测试程序
  * @note    测试两个步进电机:
  *          - ULN2003 (窗户电机): PA2, PA3, PA4, PA5 - 转2圈后反转2圈，循环
- *          - A4988 (窗帘电机): PA8(STEP), PA9(DIR), PA10(MS1), PA11(MS2), PA12(MS3) - 转10圈后反转10圈，循环
+ *          - A4988 (窗帘电机): PA8(STEP), PA9(DIR), PA10(MS1), PA11(MS2), PA12(MS3) - 转5圈后反转5圈，循环
  *          EN引脚接地(常使能)
  *
  *          A4988细分模式: MS1=H, MS2=H, MS3=H -> 1/16步进 (3200步/圈)
@@ -148,19 +148,19 @@ void Ceshi_ULN2003_Test(void)
 
 /**
  * @brief  仅测试A4988电机
+ * @note   简化版本，用于调试 - 慢速转动便于观察
  */
 void Ceshi_A4988_Test(void)
 {
-    uint32_t total_steps = CESHI_A4988_STEPS_PER_REV * CESHI_A4988_REVS;
+    /* 设置方向为正转 */
+    HAL_GPIO_WritePin(motor2A9_GPIO_Port, motor2A9_Pin, GPIO_PIN_SET);  // DIR = HIGH
 
     while (1) {
-        /* 正转10圈 */
-        ceshi_a4988_rotate(total_steps, 1);
-        HAL_Delay(500);
-
-        /* 反转10圈 */
-        ceshi_a4988_rotate(total_steps, 0);
-        HAL_Delay(500);
+        /* 产生STEP脉冲 - 每个脉冲电机转一步 */
+        HAL_GPIO_WritePin(motor2_GPIO_Port, motor2_Pin, GPIO_PIN_SET);   // STEP高
+        HAL_Delay(1);  // 1ms
+        HAL_GPIO_WritePin(motor2_GPIO_Port, motor2_Pin, GPIO_PIN_RESET); // STEP低
+        HAL_Delay(5);  // 5ms - 慢速转动，便于观察
     }
 }
 

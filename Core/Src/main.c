@@ -114,6 +114,9 @@ int main(void)
   MX_TIM2_Init();
   MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
+  // 初始化测试程序 (A4988电机初始化)
+  Ceshi_Init();
+
   // 初始化 BH1750 光强度传感器
   if (BH1750_Init(&hbh1750, &hi2c1, BH1750_ADDR_LOW) != HAL_OK) {
     // BH1750 初始化失败处理
@@ -133,9 +136,9 @@ int main(void)
   {
     /* 选择以下任一测试函数 */
 
-          Ceshi_Run();           // 同时测试两个电机
+          // Ceshi_Run();           // 同时测试两个电机
           // Ceshi_ULN2003_Test();  // 仅测试ULN2003 (窗户)
-          //Ceshi_A4988_Test();       // 仅测试A4988 (窗帘)
+          Ceshi_A4988_Test();       // 仅测试A4988 (窗帘) - 调试模式
     /* USER CODE END WHILE */
 
     // 光照传感器处理 (读取光照值，更新标志位)
