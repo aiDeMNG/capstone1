@@ -2,8 +2,8 @@
  * @file    light_control.c
  * @brief   光照自动控制模块
  * @note    监测BH1750光照传感器，自动控制窗户和窗帘
- *          窗户：相对模式（开/关）- 受优先级影响
- *          窗帘：位置模式（全开/半开/全关）- 不受优先级影响
+ *          窗户：ULN2003驱动，相对模式（开/关）- 受优先级影响
+ *          窗帘：A4988驱动，位置模式（全开/半开/全关）- 不受优先级影响
  */
 
 #include "light_control.h"
@@ -21,7 +21,7 @@ static void ProcessCurtainControl(Light_Control_HandleTypeDef *hctrl);
 void LightControl_Init(Light_Control_HandleTypeDef *hctrl,
                        LightSensor_HandleTypeDef *hlsensor,
                        Motor_ULN2003_HandleTypeDef *hmotor_window,
-                       Motor_ULN2003_HandleTypeDef *hmotor_curtain)
+                       Motor_A4988_HandleTypeDef *hmotor_curtain)
 {
     if (hctrl == NULL) {
         return;
@@ -145,26 +145,26 @@ static void ProcessCurtainControl(Light_Control_HandleTypeDef *hctrl)
     Curtain_Flag cflag = LightSensor_GetCurtainFlag(hctrl->hlsensor);
 
     if (cflag == CURTAIN_FLAG_OPEN &&
-        hctrl->hmotor_curtain->state != MOTOR_ULN2003_MOVING &&
-        hctrl->hmotor_curtain->target_position != 0)
+        hctrl->hmotor_curtain->state != MOTOR_A4988_MOVING &&
+        hctrl->hmotor_curtain->target_position != hctrl->hmotor_curtain->max_position)
     {
-        Motor_ULN2003_MoveToOpen(hctrl->hmotor_curtain);
+        Motor_A4988_MoveToOpen(hctrl->hmotor_curtain);  // 全开 = max_position
         LightSensor_UpdateCurtainState(hctrl->hlsensor, CURTAIN_FLAG_OPEN);
         LightSensor_ClearCurtainFlag(hctrl->hlsensor);
     }
     else if (cflag == CURTAIN_FLAG_HALF &&
-             hctrl->hmotor_curtain->state != MOTOR_ULN2003_MOVING &&
+             hctrl->hmotor_curtain->state != MOTOR_A4988_MOVING &&
              hctrl->hmotor_curtain->target_position != hctrl->hmotor_curtain->max_position / 2)
     {
-        Motor_ULN2003_MoveToHalf(hctrl->hmotor_curtain);
+        Motor_A4988_MoveToHalf(hctrl->hmotor_curtain);  // 半开 = max_position / 2
         LightSensor_UpdateCurtainState(hctrl->hlsensor, CURTAIN_FLAG_HALF);
         LightSensor_ClearCurtainFlag(hctrl->hlsensor);
     }
     else if (cflag == CURTAIN_FLAG_CLOSE &&
-             hctrl->hmotor_curtain->state != MOTOR_ULN2003_MOVING &&
-             hctrl->hmotor_curtain->target_position != hctrl->hmotor_curtain->max_position)
+             hctrl->hmotor_curtain->state != MOTOR_A4988_MOVING &&
+             hctrl->hmotor_curtain->target_position != 0)
     {
-        Motor_ULN2003_MoveToClose(hctrl->hmotor_curtain);
+        Motor_A4988_MoveToClose(hctrl->hmotor_curtain);  // 全关 = 0
         LightSensor_UpdateCurtainState(hctrl->hlsensor, CURTAIN_FLAG_CLOSE);
         LightSensor_ClearCurtainFlag(hctrl->hlsensor);
     }

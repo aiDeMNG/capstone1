@@ -17,6 +17,7 @@ extern "C" {
 #include "control_priority.h"
 #include "MQ135.h"
 #include "motor_uln2003.h"
+#include "motor_a4988.h"
 #include "fan.h"
 
 /* ==================== 空气质量控制状态 ==================== */
@@ -32,6 +33,7 @@ typedef enum {
 typedef struct {
     /* 传感器和执行器 */
     Motor_ULN2003_HandleTypeDef *hmotor_window;  // 窗户电机句柄
+    Motor_A4988_HandleTypeDef *hmotor_curtain;   // 窗帘电机句柄
     Fan_HandleTypeDef *hfan;                     // 风扇句柄
 
     /* 控制状态 */
@@ -41,6 +43,7 @@ typedef struct {
     /* 标志位 */
     uint8_t air_quality_bad;                     // 空气质量差标志
     uint8_t window_opened_by_air_ctrl;           // 窗户是否由空气质量控制打开
+    uint8_t curtain_opened_by_air_ctrl;          // 窗帘是否由空气质量控制打开
     uint8_t fan_started_by_air_ctrl;             // 风扇是否由空气质量控制启动
 
 } Air_Quality_Control_HandleTypeDef;
@@ -51,10 +54,12 @@ typedef struct {
  * @brief  初始化空气质量控制模块
  * @param  hctrl: 控制句柄
  * @param  hmotor_window: 窗户电机句柄
+ * @param  hmotor_curtain: 窗帘电机句柄
  * @param  hfan: 风扇句柄
  */
 void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
                             Motor_ULN2003_HandleTypeDef *hmotor_window,
+                            Motor_A4988_HandleTypeDef *hmotor_curtain,
                             Fan_HandleTypeDef *hfan);
 
 /**

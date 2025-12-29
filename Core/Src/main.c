@@ -22,6 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "motor_uln2003.h"
+#include "motor_a4988.h"
 #include "gy_30.h"
 #include "MQ135.h"
 #include "dht.h"
@@ -65,8 +66,8 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 BH1750_HandleTypeDef hbh1750;                     // BH1750 传感器句柄
 LightSensor_HandleTypeDef hlsensor;               // 光照传感器模块句柄
-Motor_ULN2003_HandleTypeDef motor1;               // 电机1 - 窗户（相对模式）
-Motor_ULN2003_HandleTypeDef motor2;               // 电机2 - 窗帘（位置模式）
+Motor_ULN2003_HandleTypeDef motor1;               // 电机1 - 窗户（ULN2003，相对模式）
+Motor_A4988_HandleTypeDef motor2;                 // 电机2 - 窗帘（A4988，位置模式）
 Fan_HandleTypeDef hfan;                           // 风扇句柄
 Air_Quality_Control_HandleTypeDef hAirCtrl;       // 空气质量控制句柄
 Temp_Humidity_Control_HandleTypeDef hTempHumCtrl; // 温湿度控制句柄
@@ -149,24 +150,34 @@ int main(void)
   Motor_ULN2003_SetMode(&motor1, MOTOR_MODE_RELATIVE);          // 相对模式
   Motor_ULN2003_SetRelativeSteps(&motor1, MOTOR_STEPS_QUARTER); // 1/4圈
 
-  // 初始化电机2 (Motor2: ULN2003, PA8, PA9, PA10, PA11) - 窗帘控制（位置模式）
-  Motor_ULN2003_Init(&motor2,
-                     GPIOA,
-                     motor2_Pin,                           // PA8  - IN1
-                     motor2A9_Pin,                         // PA9  - IN2
-                     motor2A10_Pin,                        // PA10 - IN3
-                     motor2A11_Pin);                       // PA11 - IN4
-  Motor_ULN2003_SetMode(&motor2, MOTOR_MODE_POSITION);     // 位置模式
-  Motor_ULN2003_SetMaxPosition(&motor2, MOTOR_STEPS_FULL); // 最大1圈
+  // 初始化电机2 (Motor2: A4988, PA8, PA9, PA10, PA11, PA12) - 窗帘控制（位置模式）
+  Motor_A4988_Init(&motor2,
+                   GPIOA,
+                   motor2_Pin,                                 // PA8  - STEP
+                   motor2A9_Pin,                               // PA9  - DIR
+                   motor2A10_Pin,                              // PA10 - MS1
+                   motor2A11_Pin,                              // PA11 - MS2
+                   motor2A12_Pin);                             // PA12 - MS3
+  Motor_A4988_SetMode(&motor2, MOTOR_A4988_MODE_POSITION);     // 位置模式
+  Motor_A4988_SetMaxPosition(&motor2, MOTOR_A4988_STEPS_FULL * 10); // 最大10圈（全程）
+
   HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
   MQ135_init(&hadc1);
   HC05_Init(&huart1);
 
+  // 发送测试消息验证蓝牙通信
+  HAL_Delay(1000); // 等待1秒让HC-05稳定
+  HC05_SendString("HC05 Init OK\r\n");
+
+  // 初始化窗帘位置为0
+  Motor_A4988_ResetPosition(&motor2);
+  HC05_SendString("Curtain initialized at position 0\r\n");
+
   // 初始化风扇 (PA0, TIM2_CH1)
   Fan_Init(&hfan, GPIOA, GPIO_PIN_0, &htim2, TIM_CHANNEL_1);
 
-  // 初始化空气质量控制模块
-  AirQualityControl_Init(&hAirCtrl, &motor1, &hfan);
+  // 初始化空气质量控制模块（窗户+窗帘+风扇）
+  AirQualityControl_Init(&hAirCtrl, &motor1, &motor2, &hfan);
 
   // 初始化温湿度控制模块
   TempHumidityControl_Init(&hTempHumCtrl, DHT22_GPIO_Port, DHT22_Pin, &motor1);
@@ -174,9 +185,8 @@ int main(void)
   // 初始化光照控制模块
   LightControl_Init(&hLightCtrl, &hlsensor, &motor1, &motor2);
 
-  // 发送测试消息验证蓝牙通信
-  HAL_Delay(1000); // 等待1秒让HC-05稳定
-  HC05_SendString("HC05 Init OK\r\n");
+  // 等待传感器稳定（特别是 ADC/MQ135）
+  HAL_Delay(2000); // 延迟2秒等待 ADC 稳定
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -216,8 +226,8 @@ int main(void)
     LightControl_Process(&hLightCtrl, higher_priority);
 
     // 执行电机步进（统一调用Process函数，内部根据模式自动处理）
-    Motor_ULN2003_Process(&motor1); // 窗户电机（相对模式）
-    Motor_ULN2003_Process(&motor2); // 窗帘电机（位置模式）
+    Motor_ULN2003_Process(&motor1); // 窗户电机（ULN2003，相对模式）
+    Motor_A4988_Process(&motor2);   // 窗帘电机（A4988，位置模式）
 
     /* USER CODE BEGIN 3 */
     // 每2秒发送一次传感器数据
@@ -397,7 +407,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 500;
+  sConfigOC.Pulse = 0; // 初始脉冲为0，确保风扇停止
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
@@ -481,7 +491,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin | GPIO_PIN_0, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(DHT22_GPIO_Port, DHT22_Pin, GPIO_PIN_SET);
@@ -489,7 +499,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : motor1_Pin motor1A3_Pin motor1A4_Pin motor1A5_Pin
                            motor2_Pin motor2A9_Pin motor2A10_Pin motor2A11_Pin
                            motor2A12_Pin */
-  GPIO_InitStruct.Pin = motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin;
+  GPIO_InitStruct.Pin = motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin | GPIO_PIN_0;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;

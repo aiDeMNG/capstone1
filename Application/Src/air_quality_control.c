@@ -1,7 +1,7 @@
 /**
  * @file    air_quality_control.c
  * @brief   空气质量监测与自动通风控制模块
- * @note    监测MQ135传感器，当空气质量差时自动打开窗户并启动风扇通风
+ * @note    监测MQ135传感器，当空气质量差时自动打开窗户、窗帘并启动风扇通风
  *          优先级: 空气质量控制 > 光照控制
  */
 
@@ -12,6 +12,7 @@
 static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl);
 static void StopVentilation(Air_Quality_Control_HandleTypeDef *hctrl);
 static uint8_t IsWindowOpen(Air_Quality_Control_HandleTypeDef *hctrl);
+static uint8_t IsCurtainFullyOpen(Air_Quality_Control_HandleTypeDef *hctrl);
 
 /* ==================== 公共函数实现 ==================== */
 
@@ -20,6 +21,7 @@ static uint8_t IsWindowOpen(Air_Quality_Control_HandleTypeDef *hctrl);
  */
 void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
                             Motor_ULN2003_HandleTypeDef *hmotor_window,
+                            Motor_A4988_HandleTypeDef *hmotor_curtain,
                             Fan_HandleTypeDef *hfan)
 {
     if (hctrl == NULL) {
@@ -27,11 +29,13 @@ void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
     }
 
     hctrl->hmotor_window = hmotor_window;
+    hctrl->hmotor_curtain = hmotor_curtain;
     hctrl->hfan = hfan;
     hctrl->state = AIR_CTRL_IDLE;
     hctrl->current_priority = PRIORITY_NONE;
     hctrl->air_quality_bad = 0;
     hctrl->window_opened_by_air_ctrl = 0;
+    hctrl->curtain_opened_by_air_ctrl = 0;
     hctrl->fan_started_by_air_ctrl = 0;
 }
 
@@ -57,7 +61,6 @@ void AirQualityControl_Process(Air_Quality_Control_HandleTypeDef *hctrl,
     }
 
     /* 检测空气质量 */
-    hctrl->state = AIR_CTRL_DETECTING;
     hctrl->air_quality_bad = air_quality_is_bad();
 
     /* 空气质量差，需要通风 */
@@ -68,18 +71,17 @@ void AirQualityControl_Process(Air_Quality_Control_HandleTypeDef *hctrl,
         /* 如果还未开始通风，启动通风 */
         if (hctrl->state != AIR_CTRL_VENTILATING) {
             StartVentilation(hctrl);
+            hctrl->state = AIR_CTRL_VENTILATING;
         }
-
-        hctrl->state = AIR_CTRL_VENTILATING;
     }
     /* 空气质量正常，立即停止通风 */
     else {
         /* 如果正在通风，立即停止 */
         if (hctrl->state == AIR_CTRL_VENTILATING) {
             StopVentilation(hctrl);
+            hctrl->state = AIR_CTRL_IDLE;
         }
 
-        hctrl->state = AIR_CTRL_IDLE;
         hctrl->current_priority = PRIORITY_NONE;
     }
 }
@@ -135,8 +137,8 @@ uint8_t AirQualityControl_IsVentilating(Air_Quality_Control_HandleTypeDef *hctrl
 
 /**
  * @brief  启动通风
- * @note   1. 检查窗户是否打开
- *         2. 如果窗户关闭，打开窗户
+ * @note   1. 检查窗户是否打开，如果未打开则打开窗户
+ *         2. 打开窗帘到全开位置
  *         3. 启动风扇恒速运转
  */
 static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
@@ -159,6 +161,14 @@ static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
             }
             hctrl->window_opened_by_air_ctrl = 1;
         }
+    }
+
+    /* 窗帘移动到全开位置（如果已在位置0则不会移动） */
+    if (hctrl->hmotor_curtain != NULL) {
+        /* 每次空气质量差时都尝试打开窗帘 */
+        /* 如果窗帘已经在全开位置，MoveToOpen不会触发移动 */
+        Motor_A4988_MoveToOpen(hctrl->hmotor_curtain);
+        hctrl->curtain_opened_by_air_ctrl = 1;
     }
 
     /* 启动风扇恒速运转 */
@@ -184,20 +194,9 @@ static void StopVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
         hctrl->fan_started_by_air_ctrl = 0;
     }
 
-    /* 注意：不自动关闭窗户，让用户或其他控制逻辑决定何时关闭 */
-    /* 如果需要自动关闭窗户，可以取消下面的注释 */
-    /*
-    if (hctrl->window_opened_by_air_ctrl && hctrl->hmotor_window != NULL) {
-        if (hctrl->hmotor_window->mode == MOTOR_MODE_RELATIVE) {
-            Motor_ULN2003_Close(hctrl->hmotor_window);
-        } else {
-            Motor_ULN2003_MoveToClose(hctrl->hmotor_window);
-        }
-        hctrl->window_opened_by_air_ctrl = 0;
-    }
-    */
-
+    /* 注意：不自动关闭窗户和窗帘，让用户或其他控制逻辑决定何时关闭 */
     hctrl->window_opened_by_air_ctrl = 0;
+    hctrl->curtain_opened_by_air_ctrl = 0;
 }
 
 /**
@@ -223,4 +222,22 @@ static uint8_t IsWindowOpen(Air_Quality_Control_HandleTypeDef *hctrl)
         /* 认为位置在0-100范围内都算打开状态 */
         return (current_pos <= 100) ? 1 : 0;
     }
+}
+
+/**
+ * @brief  检查窗帘是否全开
+ * @return 1=窗帘全开, 0=窗帘未全开
+ */
+static uint8_t IsCurtainFullyOpen(Air_Quality_Control_HandleTypeDef *hctrl)
+{
+    if (hctrl == NULL || hctrl->hmotor_curtain == NULL) {
+        return 0;
+    }
+
+    /* A4988窗帘使用位置模式，全开位置为max_position（10圈，32000步） */
+    int32_t current_pos = Motor_A4988_GetPosition(hctrl->hmotor_curtain);
+    int32_t max_pos = hctrl->hmotor_curtain->max_position;
+
+    /* 认为位置在max_position±100范围内都算全开状态 */
+    return (current_pos >= max_pos - 100 && current_pos <= max_pos) ? 1 : 0;
 }

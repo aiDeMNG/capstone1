@@ -25,7 +25,8 @@ void Fan_Init(Fan_HandleTypeDef *hfan,
               TIM_HandleTypeDef *htim,
               uint32_t tim_channel)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return;
     }
 
@@ -37,7 +38,14 @@ void Fan_Init(Fan_HandleTypeDef *hfan,
     hfan->tim_channel = tim_channel;
     hfan->duty_cycle = 0;
 
-    /* 默认配置为GPIO模式，引脚设置为高电平（风扇停止） */
+    /* 确保 PWM 停止（如果之前被启动了） */
+    if (hfan->htim != NULL)
+    {
+        HAL_TIM_PWM_Stop(hfan->htim, hfan->tim_channel);
+    }
+
+    /* 强制配置为GPIO模式，引脚设置为高电平（风扇停止） */
+    Fan_ConfigGPIO(hfan);
     HAL_GPIO_WritePin(hfan->gpio_port, hfan->gpio_pin, GPIO_PIN_SET);
 }
 
@@ -46,12 +54,14 @@ void Fan_Init(Fan_HandleTypeDef *hfan,
  */
 void Fan_StartConstant(Fan_HandleTypeDef *hfan)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return;
     }
 
     /* 如果之前是PWM模式，先停止PWM */
-    if (hfan->mode == FAN_MODE_PWM && hfan->htim != NULL) {
+    if (hfan->mode == FAN_MODE_PWM && hfan->htim != NULL)
+    {
         HAL_TIM_PWM_Stop(hfan->htim, hfan->tim_channel);
     }
 
@@ -69,12 +79,14 @@ void Fan_StartConstant(Fan_HandleTypeDef *hfan)
  */
 void Fan_StartPWM(Fan_HandleTypeDef *hfan, uint8_t duty_cycle)
 {
-    if (hfan == NULL || hfan->htim == NULL) {
+    if (hfan == NULL || hfan->htim == NULL)
+    {
         return;
     }
 
     /* 限制占空比范围 */
-    if (duty_cycle > 100) {
+    if (duty_cycle > 100)
+    {
         duty_cycle = 100;
     }
 
@@ -96,12 +108,14 @@ void Fan_StartPWM(Fan_HandleTypeDef *hfan, uint8_t duty_cycle)
  */
 void Fan_SetDuty(Fan_HandleTypeDef *hfan, uint8_t duty_cycle)
 {
-    if (hfan == NULL || hfan->htim == NULL || hfan->mode != FAN_MODE_PWM) {
+    if (hfan == NULL || hfan->htim == NULL || hfan->mode != FAN_MODE_PWM)
+    {
         return;
     }
 
     /* 限制占空比范围 */
-    if (duty_cycle > 100) {
+    if (duty_cycle > 100)
+    {
         duty_cycle = 100;
     }
 
@@ -119,14 +133,18 @@ void Fan_SetDuty(Fan_HandleTypeDef *hfan, uint8_t duty_cycle)
  */
 void Fan_Stop(Fan_HandleTypeDef *hfan)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return;
     }
 
-    if (hfan->mode == FAN_MODE_CONSTANT) {
+    if (hfan->mode == FAN_MODE_CONSTANT)
+    {
         /* GPIO模式：设置为高电平停止风扇 */
         HAL_GPIO_WritePin(hfan->gpio_port, hfan->gpio_pin, GPIO_PIN_SET);
-    } else if (hfan->mode == FAN_MODE_PWM && hfan->htim != NULL) {
+    }
+    else if (hfan->mode == FAN_MODE_PWM && hfan->htim != NULL)
+    {
         /* PWM模式：停止PWM输出 */
         HAL_TIM_PWM_Stop(hfan->htim, hfan->tim_channel);
         hfan->duty_cycle = 0;
@@ -140,7 +158,8 @@ void Fan_Stop(Fan_HandleTypeDef *hfan)
  */
 Fan_State Fan_GetState(Fan_HandleTypeDef *hfan)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return FAN_STATE_STOPPED;
     }
     return hfan->state;
@@ -151,7 +170,8 @@ Fan_State Fan_GetState(Fan_HandleTypeDef *hfan)
  */
 Fan_Mode Fan_GetMode(Fan_HandleTypeDef *hfan)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return FAN_MODE_CONSTANT;
     }
     return hfan->mode;
@@ -162,7 +182,8 @@ Fan_Mode Fan_GetMode(Fan_HandleTypeDef *hfan)
  */
 uint8_t Fan_GetDuty(Fan_HandleTypeDef *hfan)
 {
-    if (hfan == NULL) {
+    if (hfan == NULL)
+    {
         return 0;
     }
     return hfan->duty_cycle;

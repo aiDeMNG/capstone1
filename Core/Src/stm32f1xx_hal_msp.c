@@ -265,7 +265,9 @@ void HAL_TIM_MspPostInit(TIM_HandleTypeDef* htim)
   if(htim->Instance==TIM2)
   {
     /* USER CODE BEGIN TIM2_MspPostInit 0 */
-
+    // 不配置 PA0 为 TIM2_CH1 复用模式
+    // 风扇使用 GPIO 模式控制，不使用 PWM
+    return;
     /* USER CODE END TIM2_MspPostInit 0 */
 
     __HAL_RCC_GPIOA_CLK_ENABLE();
