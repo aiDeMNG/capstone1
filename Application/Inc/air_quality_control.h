@@ -16,7 +16,7 @@ extern "C" {
 #include <stdint.h>
 #include "control_priority.h"
 #include "MQ135.h"
-#include "motor_uln2003.h"
+#include "servo_sg90.h"
 #include "motor_a4988.h"
 #include "fan.h"
 
@@ -32,7 +32,7 @@ typedef enum {
 
 typedef struct {
     /* 传感器和执行器 */
-    Motor_ULN2003_HandleTypeDef *hmotor_window;  // 窗户电机句柄
+    Servo_SG90_HandleTypeDef *hservo_window;     // 窗户舵机句柄
     Motor_A4988_HandleTypeDef *hmotor_curtain;   // 窗帘电机句柄
     Fan_HandleTypeDef *hfan;                     // 风扇句柄
 
@@ -53,12 +53,12 @@ typedef struct {
 /**
  * @brief  初始化空气质量控制模块
  * @param  hctrl: 控制句柄
- * @param  hmotor_window: 窗户电机句柄
+ * @param  hservo_window: 窗户舵机句柄
  * @param  hmotor_curtain: 窗帘电机句柄
  * @param  hfan: 风扇句柄
  */
 void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
-                            Motor_ULN2003_HandleTypeDef *hmotor_window,
+                            Servo_SG90_HandleTypeDef *hservo_window,
                             Motor_A4988_HandleTypeDef *hmotor_curtain,
                             Fan_HandleTypeDef *hfan);
 

@@ -21,7 +21,7 @@ extern "C" {
 #include <stdint.h>
 #include "control_priority.h"
 #include "dht.h"
-#include "motor_uln2003.h"
+#include "servo_sg90.h"
 
 /* ==================== 温湿度阈值配置 ==================== */
 
@@ -53,7 +53,7 @@ typedef struct {
     /* 传感器和执行器 */
     GPIO_TypeDef *dht_port;                     // DHT22 GPIO端口
     uint16_t dht_pin;                           // DHT22 GPIO引脚
-    Motor_ULN2003_HandleTypeDef *hmotor_window; // 窗户电机句柄
+    Servo_SG90_HandleTypeDef *hservo_window;    // 窗户舵机句柄
 
     /* 控制状态 */
     Temp_Humidity_Control_State state;          // 控制状态
@@ -80,12 +80,12 @@ typedef struct {
  * @param  hctrl: 控制句柄
  * @param  dht_port: DHT22 GPIO端口
  * @param  dht_pin: DHT22 GPIO引脚
- * @param  hmotor_window: 窗户电机句柄
+ * @param  hservo_window: 窗户舵机句柄
  */
 void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
                                GPIO_TypeDef *dht_port,
                                uint16_t dht_pin,
-                               Motor_ULN2003_HandleTypeDef *hmotor_window);
+                               Servo_SG90_HandleTypeDef *hservo_window);
 
 /**
  * @brief  温湿度控制处理函数（主循环调用）

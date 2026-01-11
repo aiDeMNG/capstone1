@@ -2,7 +2,7 @@
  * @file    light_control.c
  * @brief   光照自动控制模块
  * @note    监测BH1750光照传感器，自动控制窗户和窗帘
- *          窗户：ULN2003驱动，相对模式（开/关）- 受优先级影响
+ *          窗户：SG90舵机驱动，角度控制（90/135/180度）- 受优先级影响
  *          窗帘：A4988驱动，位置模式（全开/半开/全关）- 不受优先级影响
  */
 
@@ -20,7 +20,7 @@ static void ProcessCurtainControl(Light_Control_HandleTypeDef *hctrl);
  */
 void LightControl_Init(Light_Control_HandleTypeDef *hctrl,
                        LightSensor_HandleTypeDef *hlsensor,
-                       Motor_ULN2003_HandleTypeDef *hmotor_window,
+                       Servo_SG90_HandleTypeDef *hservo_window,
                        Motor_A4988_HandleTypeDef *hmotor_curtain)
 {
     if (hctrl == NULL) {
@@ -28,7 +28,7 @@ void LightControl_Init(Light_Control_HandleTypeDef *hctrl,
     }
 
     hctrl->hlsensor = hlsensor;
-    hctrl->hmotor_window = hmotor_window;
+    hctrl->hservo_window = hservo_window;
     hctrl->hmotor_curtain = hmotor_curtain;
     hctrl->state = LIGHT_CTRL_IDLE;
     hctrl->current_priority = PRIORITY_LIGHT;
@@ -60,12 +60,12 @@ void LightControl_Process(Light_Control_HandleTypeDef *hctrl,
     ProcessCurtainControl(hctrl);
 
     /* 更新窗户状态反馈给光照传感器模块 */
-    if (hctrl->hmotor_window != NULL) {
-        Motor_ULN2003_State motor_state = Motor_ULN2003_GetState(hctrl->hmotor_window);
-        if (motor_state == MOTOR_ULN2003_OPEN) {
+    if (hctrl->hservo_window != NULL) {
+        Servo_SG90_State servo_state = Servo_SG90_GetState(hctrl->hservo_window);
+        if (servo_state == SERVO_SG90_OPEN) {
             LightSensor_UpdateWindowState(hctrl->hlsensor, WINDOW_FLAG_OPEN);
         }
-        else if (motor_state == MOTOR_ULN2003_CLOSED) {
+        else if (servo_state == SERVO_SG90_CLOSED) {
             LightSensor_UpdateWindowState(hctrl->hlsensor, WINDOW_FLAG_CLOSE);
         }
     }
@@ -102,7 +102,7 @@ Control_Priority LightControl_GetPriority(Light_Control_HandleTypeDef *hctrl)
  */
 static void ProcessWindowControl(Light_Control_HandleTypeDef *hctrl, uint8_t suppressed)
 {
-    if (hctrl == NULL || hctrl->hlsensor == NULL || hctrl->hmotor_window == NULL) {
+    if (hctrl == NULL || hctrl->hlsensor == NULL || hctrl->hservo_window == NULL) {
         return;
     }
 
@@ -116,16 +116,16 @@ static void ProcessWindowControl(Light_Control_HandleTypeDef *hctrl, uint8_t sup
     Window_Flag wflag = LightSensor_GetWindowFlag(hctrl->hlsensor);
 
     if (wflag == WINDOW_FLAG_OPEN &&
-        hctrl->hmotor_window->state != MOTOR_ULN2003_OPENING)
+        hctrl->hservo_window->state != SERVO_SG90_OPENING)
     {
-        Motor_ULN2003_Open(hctrl->hmotor_window);
+        Servo_SG90_OpenWindow(hctrl->hservo_window);
         LightSensor_UpdateWindowState(hctrl->hlsensor, WINDOW_FLAG_OPEN);
         LightSensor_ClearWindowFlag(hctrl->hlsensor);
     }
     else if (wflag == WINDOW_FLAG_CLOSE &&
-             hctrl->hmotor_window->state != MOTOR_ULN2003_CLOSING)
+             hctrl->hservo_window->state != SERVO_SG90_CLOSING)
     {
-        Motor_ULN2003_Close(hctrl->hmotor_window);
+        Servo_SG90_CloseWindow(hctrl->hservo_window);
         LightSensor_UpdateWindowState(hctrl->hlsensor, WINDOW_FLAG_CLOSE);
         LightSensor_ClearWindowFlag(hctrl->hlsensor);
     }

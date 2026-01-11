@@ -22,7 +22,7 @@ static void ReadSensors(Temp_Humidity_Control_HandleTypeDef *hctrl);
 void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
                               GPIO_TypeDef *dht_port,
                               uint16_t dht_pin,
-                              Motor_ULN2003_HandleTypeDef *hmotor_window)
+                              Servo_SG90_HandleTypeDef *hservo_window)
 {
     if (hctrl == NULL)
     {
@@ -31,7 +31,7 @@ void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
 
     hctrl->dht_port = dht_port;
     hctrl->dht_pin = dht_pin;
-    hctrl->hmotor_window = hmotor_window;
+    hctrl->hservo_window = hservo_window;
     hctrl->state = TEMP_HUM_CTRL_IDLE;
     hctrl->current_priority = PRIORITY_NONE;
     hctrl->temperature = 0.0f;
@@ -282,75 +282,34 @@ static uint8_t CalculateWindowOpening(Temp_Humidity_Control_HandleTypeDef *hctrl
 /**
  * @brief  调节窗户到目标开度
  * @param  target_opening: 目标开度 (0-100%)
- * @note   根据窗户电机模式（相对/位置）选择合适的控制方法
+ * @note   将开度映射到舵机角度 (90度=全关, 135度=半开, 180度=全开)
  */
 static void AdjustWindow(Temp_Humidity_Control_HandleTypeDef *hctrl, uint8_t target_opening)
 {
-    if (hctrl == NULL || hctrl->hmotor_window == NULL)
+    if (hctrl == NULL || hctrl->hservo_window == NULL)
     {
         return;
     }
 
-    Motor_ULN2003_HandleTypeDef *motor = hctrl->hmotor_window;
+    Servo_SG90_HandleTypeDef *servo = hctrl->hservo_window;
 
-    /* 根据电机模式选择控制方法 */
-    if (motor->mode == MOTOR_MODE_POSITION)
+    /* 根据目标开度设置舵机角度 */
+    if (target_opening == WINDOW_OPEN_NONE)
     {
-        /* ========== 位置模式：精确控制窗户开度 ========== */
-
-        int32_t target_pos = 0;
-
-        if (target_opening == WINDOW_OPEN_NONE)
-        {
-            /* 全关 (最大位置) */
-            target_pos = motor->max_position;
-        }
-        else if (target_opening >= WINDOW_OPEN_FULL)
-        {
-            /* 全开 (位置0) */
-            target_pos = 0;
-        }
-        else
-        {
-            /* 半开或其他开度 */
-            /* 将百分比转换为位置：开度越大，位置越接近0 */
-            target_pos = motor->max_position - (motor->max_position * target_opening / 100);
-        }
-
-        /* 移动到目标位置 */
-        Motor_ULN2003_MoveToPosition(motor, target_pos);
+        /* 全关: 90度 */
+        Servo_SG90_CloseWindow(servo);
+        hctrl->window_controlled_by_temp_hum = 1;
+    }
+    else if (target_opening >= WINDOW_OPEN_FULL)
+    {
+        /* 全开: 180度 */
+        Servo_SG90_OpenWindow(servo);
         hctrl->window_controlled_by_temp_hum = 1;
     }
     else
     {
-        /* ========== 相对模式：简化控制（全开/半开/全关） ========== */
-
-        if (target_opening == WINDOW_OPEN_NONE)
-        {
-            /* 全关 */
-            if (motor->state != MOTOR_ULN2003_CLOSED && motor->state != MOTOR_ULN2003_CLOSING)
-            {
-                Motor_ULN2003_Close(motor);
-                hctrl->window_controlled_by_temp_hum = 1;
-            }
-        }
-        else if (target_opening >= WINDOW_OPEN_FULL)
-        {
-            /* 全开 */
-            if (motor->state != MOTOR_ULN2003_OPEN && motor->state != MOTOR_ULN2003_OPENING)
-            {
-                Motor_ULN2003_Open(motor);
-                hctrl->window_controlled_by_temp_hum = 1;
-            }
-        }
-        else
-        {
-            /* 半开（或其他中间开度，统一处理为半开） */
-            if (motor->state != MOTOR_ULN2003_OPEN && motor->state != MOTOR_ULN2003_OPENING)
-            {
-                Motor_ULN2003_Half(motor);
-                hctrl->window_controlled_by_temp_hum = 1;
-            }
-        }
+        /* 半开: 135度 (或其他中间开度，统一处理为半开) */
+        Servo_SG90_HalfWindow(servo);
+        hctrl->window_controlled_by_temp_hum = 1;
     }
 }

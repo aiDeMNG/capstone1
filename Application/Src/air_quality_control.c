@@ -20,7 +20,7 @@ static uint8_t IsCurtainFullyOpen(Air_Quality_Control_HandleTypeDef *hctrl);
  * @brief  初始化空气质量控制模块
  */
 void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
-                            Motor_ULN2003_HandleTypeDef *hmotor_window,
+                            Servo_SG90_HandleTypeDef *hservo_window,
                             Motor_A4988_HandleTypeDef *hmotor_curtain,
                             Fan_HandleTypeDef *hfan)
 {
@@ -28,7 +28,7 @@ void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
         return;
     }
 
-    hctrl->hmotor_window = hmotor_window;
+    hctrl->hservo_window = hservo_window;
     hctrl->hmotor_curtain = hmotor_curtain;
     hctrl->hfan = hfan;
     hctrl->state = AIR_CTRL_IDLE;
@@ -149,16 +149,9 @@ static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
 
     /* 检查窗户状态 */
     if (!IsWindowOpen(hctrl)) {
-        /* 窗户未打开，打开窗户 */
-        if (hctrl->hmotor_window != NULL) {
-            /* 根据电机模式选择合适的打开方法 */
-            if (hctrl->hmotor_window->mode == MOTOR_MODE_RELATIVE) {
-                /* 相对模式：执行打开动作 */
-                Motor_ULN2003_Open(hctrl->hmotor_window);
-            } else {
-                /* 位置模式：移动到全开位置 */
-                Motor_ULN2003_MoveToOpen(hctrl->hmotor_window);
-            }
+        /* 窗户未打开，打开窗户到全开位置 (180度) */
+        if (hctrl->hservo_window != NULL) {
+            Servo_SG90_OpenWindow(hctrl->hservo_window);
             hctrl->window_opened_by_air_ctrl = 1;
         }
     }
@@ -205,23 +198,16 @@ static void StopVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
  */
 static uint8_t IsWindowOpen(Air_Quality_Control_HandleTypeDef *hctrl)
 {
-    if (hctrl == NULL || hctrl->hmotor_window == NULL) {
+    if (hctrl == NULL || hctrl->hservo_window == NULL) {
         return 0;
     }
 
-    Motor_ULN2003_State motor_state = Motor_ULN2003_GetState(hctrl->hmotor_window);
+    Servo_SG90_State servo_state = Servo_SG90_GetState(hctrl->hservo_window);
 
-    /* 根据电机模式判断窗户状态 */
-    if (hctrl->hmotor_window->mode == MOTOR_MODE_RELATIVE) {
-        /* 相对模式：检查状态是否为OPEN或OPENING */
-        return (motor_state == MOTOR_ULN2003_OPEN ||
-                motor_state == MOTOR_ULN2003_OPENING) ? 1 : 0;
-    } else {
-        /* 位置模式：检查当前位置是否接近全开位置(0) */
-        int32_t current_pos = Motor_ULN2003_GetPosition(hctrl->hmotor_window);
-        /* 认为位置在0-100范围内都算打开状态 */
-        return (current_pos <= 100) ? 1 : 0;
-    }
+    /* 检查舵机状态是否为打开或半开 */
+    return (servo_state == SERVO_SG90_OPEN ||
+            servo_state == SERVO_SG90_HALF ||
+            servo_state == SERVO_SG90_OPENING) ? 1 : 0;
 }
 
 /**

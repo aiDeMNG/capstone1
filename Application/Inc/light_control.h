@@ -2,7 +2,7 @@
  * @file    light_control.h
  * @brief   光照自动控制模块
  * @note    监测BH1750光照传感器，自动控制窗户和窗帘
- *          窗户：ULN2003驱动，相对模式（开/关）
+ *          窗户：SG90舵机驱动，角度控制（90/135/180度）
  *          窗帘：A4988驱动，位置模式（全开/半开/全关）
  */
 
@@ -17,7 +17,7 @@ extern "C" {
 #include <stdint.h>
 #include "control_priority.h"
 #include "gy_30.h"
-#include "motor_uln2003.h"
+#include "servo_sg90.h"
 #include "motor_a4988.h"
 
 /* ==================== 光照控制状态 ==================== */
@@ -33,7 +33,7 @@ typedef enum {
 typedef struct {
     /* 传感器和执行器 */
     LightSensor_HandleTypeDef *hlsensor;        // 光照传感器句柄
-    Motor_ULN2003_HandleTypeDef *hmotor_window; // 窗户电机句柄（ULN2003）
+    Servo_SG90_HandleTypeDef *hservo_window;    // 窗户舵机句柄（SG90）
     Motor_A4988_HandleTypeDef *hmotor_curtain;  // 窗帘电机句柄（A4988）
 
     /* 控制状态 */
@@ -48,12 +48,12 @@ typedef struct {
  * @brief  初始化光照控制模块
  * @param  hctrl: 控制句柄
  * @param  hlsensor: 光照传感器句柄
- * @param  hmotor_window: 窗户电机句柄（ULN2003）
+ * @param  hservo_window: 窗户舵机句柄（SG90）
  * @param  hmotor_curtain: 窗帘电机句柄（A4988）
  */
 void LightControl_Init(Light_Control_HandleTypeDef *hctrl,
                        LightSensor_HandleTypeDef *hlsensor,
-                       Motor_ULN2003_HandleTypeDef *hmotor_window,
+                       Servo_SG90_HandleTypeDef *hservo_window,
                        Motor_A4988_HandleTypeDef *hmotor_curtain);
 
 /**

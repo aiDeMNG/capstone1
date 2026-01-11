@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include "motor_uln2003.h"
+#include "servo_sg90.h"
 #include "motor_a4988.h"
 #include "gy_30.h"
 #include "MQ135.h"
@@ -67,7 +67,7 @@ DMA_HandleTypeDef hdma_usart1_tx;
 
 BH1750_HandleTypeDef hbh1750;                     // BH1750 传感器句柄
 LightSensor_HandleTypeDef hlsensor;               // 光照传感器模块句柄
-Motor_ULN2003_HandleTypeDef motor1;               // 电机1 - 窗户（ULN2003，相对模式）
+Servo_SG90_HandleTypeDef servo_window;            // 舵机 - 窗户（SG90，角度控制）
 Motor_A4988_HandleTypeDef motor2;                 // 电机2 - 窗帘（A4988，位置模式）
 Fan_HandleTypeDef hfan;                           // 风扇句柄
 Air_Quality_Control_HandleTypeDef hAirCtrl;       // 空气质量控制句柄
@@ -143,15 +143,8 @@ int main(void)
   // 初始化光照传感器模块
   LightSensor_Init(&hlsensor, &hbh1750);
 
-  // 初始化电机1 (Motor1: ULN2003, PA2, PA3, PA4, PA5) - 窗户控制（相对模式）
-  Motor_ULN2003_Init(&motor1,
-                     GPIOA,
-                     motor1_Pin,                                // PA2 - IN1
-                     motor1A3_Pin,                              // PA3 - IN2
-                     motor1A4_Pin,                              // PA4 - IN3
-                     motor1A5_Pin);                             // PA5 - IN4
-  Motor_ULN2003_SetMode(&motor1, MOTOR_MODE_RELATIVE);          // 相对模式
-  Motor_ULN2003_SetRelativeSteps(&motor1, MOTOR_STEPS_QUARTER); // 1/4圈
+  // 初始化窗户舵机 (Servo SG90, PA6, TIM3_CH1)
+  Servo_SG90_Init(&servo_window, &htim3, TIM_CHANNEL_1);
 
   // 初始化电机2 (Motor2: A4988, PA8, PA9, PA10, PA11, PA12) - 窗帘控制（位置模式）
   Motor_A4988_Init(&motor2,
@@ -179,14 +172,17 @@ int main(void)
   // 初始化风扇 (PA0, TIM2_CH1)
   Fan_Init(&hfan, GPIOA, GPIO_PIN_0, &htim2, TIM_CHANNEL_1);
 
-  // 初始化空气质量控制模块（窗户+窗帘+风扇）
-  AirQualityControl_Init(&hAirCtrl, &motor1, &motor2, &hfan);
+  // 初始化空气质量控制模块（窗户舵机+窗帘+风扇）
+  // 注意：需要更新空气质量控制模块以支持SG90舵机
+  AirQualityControl_Init(&hAirCtrl, &servo_window, &motor2, &hfan);
 
   // 初始化温湿度控制模块
-  TempHumidityControl_Init(&hTempHumCtrl, DHT22_GPIO_Port, DHT22_Pin, &motor1);
+  // 注意：需要更新温湿度控制模块以支持SG90舵机
+  TempHumidityControl_Init(&hTempHumCtrl, DHT22_GPIO_Port, DHT22_Pin, &servo_window);
 
   // 初始化光照控制模块
-  LightControl_Init(&hLightCtrl, &hlsensor, &motor1, &motor2);
+  // 注意：需要更新光照控制模块以支持SG90舵机
+  LightControl_Init(&hLightCtrl, &hlsensor, &servo_window, &motor2);
 
   // 等待传感器稳定（特别是 ADC/MQ135）
   HAL_Delay(2000); // 延迟2秒等待 ADC 稳定
@@ -196,7 +192,31 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+    // 1. 读取DHT22温湿度
     DHT22_update(DHT22_GPIO_Port, DHT22_Pin);
+    temp = get_temperature();
+    hum = get_humidity();
+
+    // 2. 空气质量自动控制（最高优先级）
+    AirQualityControl_Process(&hAirCtrl, PRIORITY_NONE);
+    Control_Priority air_priority = AirQualityControl_GetPriority(&hAirCtrl);
+
+    // 3. 温湿度自动控制（次高优先级）
+    TempHumidityControl_Process(&hTempHumCtrl, air_priority);
+    Control_Priority temp_hum_priority = TempHumidityControl_GetPriority(&hTempHumCtrl);
+
+    // 4. 光照传感器处理（设置标志位）
+    LightSensor_Process(&hlsensor);
+    g_light_lux = LightSensor_GetLux(&hlsensor);
+
+    // 5. 光照控制（最低优先级，受空气质量和温湿度控制抑制）
+    Control_Priority higher_priority = (air_priority > temp_hum_priority) ? air_priority : temp_hum_priority;
+    LightControl_Process(&hLightCtrl, higher_priority);
+
+    // 6. 执行电机/舵机处理
+    Servo_SG90_Process(&servo_window);  // 窗户舵机（SG90，PWM控制）
+    Motor_A4988_Process(&motor2);       // 窗帘电机（A4988，位置模式）
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
