@@ -3,6 +3,10 @@
  * @brief   GY-30 (BH1750) 光照传感器模块
  * @note    只负责读取光照值和设置控制标志位
  *          电机控制由 motor.c 根据标志位执行
+ *          窗户和窗帘使用相同的控制逻辑：
+ *          - 强光（>2000lux）→ 关闭
+ *          - 适中光照（50-2000lux）→ 打开
+ *          - 夜晚（<50lux）→ 关闭
  */
 
 #ifndef __GY_30_H
@@ -45,15 +49,14 @@ extern "C"
 
 /* ==================== 光照阈值配置 ==================== */
 
-/* 窗户控制阈值（三态）*/
-#define LUX_WINDOW_HIGH_TH 2000.0f // 强光阈值 (高于此值关窗)
-#define LUX_WINDOW_LOW_TH 50.0f    // 弱光阈值 (低于此值关窗)
-                                   // 介于两者之间时开窗
+/* 窗户和窗帘共用控制阈值（逻辑相同）*/
+#define LUX_WINDOW_HIGH_TH 2000.0f // 强光阈值 (高于此值关闭窗户和窗帘)
+#define LUX_WINDOW_LOW_TH 50.0f    // 弱光阈值 (低于此值关闭窗户和窗帘，夜晚)
+                                   // 介于两者之间时打开窗户和窗帘
 
-/* 窗帘控制阈值（三态）*/
-#define LUX_CURTAIN_HIGH_TH 1500.0f // 强光阈值 (高于此值全关)
-#define LUX_CURTAIN_LOW_TH 300.0f   // 弱光阈值 (低于此值全开)
-                                    // 介于两者之间时半开
+/* 窗帘独立阈值（已废弃，现在使用窗户阈值）*/
+#define LUX_CURTAIN_HIGH_TH 1500.0f // [废弃] 保留用于兼容性
+#define LUX_CURTAIN_LOW_TH 300.0f   // [废弃] 保留用于兼容性
 
 #define LUX_HYSTERESIS 10.0f // 滞后量 (防止频繁切换)
 

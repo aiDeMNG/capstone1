@@ -3,7 +3,11 @@
  * @brief   光照自动控制模块
  * @note    监测BH1750光照传感器，自动控制窗户和窗帘
  *          窗户：SG90舵机驱动，角度控制（90/135/180度）- 受优先级影响
- *          窗帘：A4988驱动，位置模式（全开/半开/全关）- 不受优先级影响
+ *          窗帘：A4988驱动，位置模式（全开/全关）- 不受优先级影响
+ *          窗户和窗帘使用相同的控制逻辑：
+ *          - 强光 → 关闭
+ *          - 适中光照 → 打开
+ *          - 夜晚 → 关闭
  */
 
 #include "light_control.h"
@@ -135,6 +139,7 @@ static void ProcessWindowControl(Light_Control_HandleTypeDef *hctrl, uint8_t sup
  * @brief  处理窗帘控制
  * @param  hctrl: 控制句柄
  * @note   窗帘控制不受优先级影响
+ *         控制逻辑与窗户相同：强光全关、适中全开、夜晚全关
  */
 static void ProcessCurtainControl(Light_Control_HandleTypeDef *hctrl)
 {

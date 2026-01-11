@@ -1,12 +1,13 @@
 /**
  * @file    temp_humidity_control.h
  * @brief   温湿度监测与自动控制模块
- * @note    监测DHT22温湿度传感器，根据温湿度自动调节窗户开度
+ * @note    监测DHT22温湿度传感器，根据温湿度自动调节窗户开度和窗帘
+ *          窗户开则窗帘全开，窗户关则窗帘全关
  *          优先级: 温湿度控制 > 光照控制
  *          控制策略:
- *          - 温度过低(< 18°C): 关窗保温
- *          - 温度过高(> 28°C): 开窗散热
- *          - 湿度过高(> 70%): 开窗除湿（50%开度）
+ *          - 温度过低(< 18°C): 关窗关窗帘保温
+ *          - 温度过高(> 28°C): 全开窗户和窗帘散热
+ *          - 湿度过高(> 70%): 半开窗户、全开窗帘除湿
  *          - 决策优先级: 温度过低 > 湿度控制 > 温度过高
  */
 
@@ -22,6 +23,7 @@ extern "C" {
 #include "control_priority.h"
 #include "dht.h"
 #include "servo_sg90.h"
+#include "motor_a4988.h"
 
 /* ==================== 温湿度阈值配置 ==================== */
 
@@ -54,6 +56,7 @@ typedef struct {
     GPIO_TypeDef *dht_port;                     // DHT22 GPIO端口
     uint16_t dht_pin;                           // DHT22 GPIO引脚
     Servo_SG90_HandleTypeDef *hservo_window;    // 窗户舵机句柄
+    Motor_A4988_HandleTypeDef *hmotor_curtain;  // 窗帘电机句柄
 
     /* 控制状态 */
     Temp_Humidity_Control_State state;          // 控制状态
@@ -70,6 +73,7 @@ typedef struct {
 
     /* 标志位 */
     uint8_t window_controlled_by_temp_hum;      // 窗户是否由温湿度控制
+    uint8_t curtain_controlled_by_temp_hum;     // 窗帘是否由温湿度控制
 
 } Temp_Humidity_Control_HandleTypeDef;
 
@@ -81,11 +85,13 @@ typedef struct {
  * @param  dht_port: DHT22 GPIO端口
  * @param  dht_pin: DHT22 GPIO引脚
  * @param  hservo_window: 窗户舵机句柄
+ * @param  hmotor_curtain: 窗帘电机句柄
  */
 void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
                                GPIO_TypeDef *dht_port,
                                uint16_t dht_pin,
-                               Servo_SG90_HandleTypeDef *hservo_window);
+                               Servo_SG90_HandleTypeDef *hservo_window,
+                               Motor_A4988_HandleTypeDef *hmotor_curtain);
 
 /**
  * @brief  温湿度控制处理函数（主循环调用）

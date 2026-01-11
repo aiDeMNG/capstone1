@@ -101,9 +101,9 @@ uint32_t last_send_time = 0;
 /* USER CODE END 0 */
 
 /**
-  * @brief  The application entry point.
-  * @retval int
-  */
+ * @brief  The application entry point.
+ * @retval int
+ */
 int main(void)
 {
 
@@ -151,13 +151,13 @@ int main(void)
   // 初始化电机2 (Motor2: A4988, PA8, PA9, PA10, PA11, PA12) - 窗帘控制（位置模式）
   Motor_A4988_Init(&motor2,
                    GPIOA,
-                   motor2_Pin,                                 // PA8  - STEP
-                   motor2A9_Pin,                               // PA9  - DIR
-                   motor2A10_Pin,                              // PA10 - MS1
-                   motor2A11_Pin,                              // PA11 - MS2
-                   motor2A12_Pin);                             // PA12 - MS3
-  Motor_A4988_SetMode(&motor2, MOTOR_A4988_MODE_POSITION);     // 位置模式
-  Motor_A4988_SetMaxPosition(&motor2, MOTOR_A4988_STEPS_FULL * 10); // 最大10圈（全程）
+                   motor2_Pin,                                      // PA8  - STEP
+                   motor2A9_Pin,                                    // PA9  - DIR
+                   motor2A10_Pin,                                   // PA10 - MS1
+                   motor2A11_Pin,                                   // PA11 - MS2
+                   motor2A12_Pin);                                  // PA12 - MS3
+  Motor_A4988_SetMode(&motor2, MOTOR_A4988_MODE_POSITION);          // 位置模式
+  Motor_A4988_SetMaxPosition(&motor2, MOTOR_A4988_STEPS_FULL * 15); // 最大10圈（全程）
 
   HAL_NVIC_DisableIRQ(DMA1_Channel1_IRQn);
   MQ135_init(&hadc1);
@@ -179,15 +179,15 @@ int main(void)
   AirQualityControl_Init(&hAirCtrl, &servo_window, &motor2, &hfan);
 
   // 初始化温湿度控制模块
-  // 注意：需要更新温湿度控制模块以支持SG90舵机
-  TempHumidityControl_Init(&hTempHumCtrl, DHT22_GPIO_Port, DHT22_Pin, &servo_window);
+  // 注意：需要更新温湿度控制模块以支持SG90舵机和A4988窗帘电机
+  TempHumidityControl_Init(&hTempHumCtrl, DHT22_GPIO_Port, DHT22_Pin, &servo_window, &motor2);
 
   // 初始化光照控制模块
   // 注意：需要更新光照控制模块以支持SG90舵机
   LightControl_Init(&hLightCtrl, &hlsensor, &servo_window, &motor2);
 
   // 初始化手动控制模块（上位机控制）
-  ManualControl_Init(&hManualCtrl, &servo_window, &motor2, 0);  // 禁用超时自动退出
+  ManualControl_Init(&hManualCtrl, &servo_window, &motor2, 0); // 禁用超时自动退出
 
   // 等待传感器稳定（特别是 ADC/MQ135）
   HAL_Delay(2000); // 延迟2秒等待 ADC 稳定
@@ -222,13 +222,15 @@ int main(void)
 
     // 3.4 光照控制（传入最高优先级）
     Control_Priority highest_priority = manual_priority;
-    if (air_priority > highest_priority) highest_priority = air_priority;
-    if (temp_hum_priority > highest_priority) highest_priority = temp_hum_priority;
+    if (air_priority > highest_priority)
+      highest_priority = air_priority;
+    if (temp_hum_priority > highest_priority)
+      highest_priority = temp_hum_priority;
     LightControl_Process(&hLightCtrl, highest_priority);
 
     // 4. 执行电机/舵机处理（无论手动还是自动模式都需要）
-    Servo_SG90_Process(&servo_window);  // 窗户舵机（SG90，PWM控制）
-    Motor_A4988_Process(&motor2);       // 窗帘电机（A4988，位置模式）
+    Servo_SG90_Process(&servo_window); // 窗户舵机（SG90，PWM控制）
+    Motor_A4988_Process(&motor2);      // 窗帘电机（A4988，位置模式）
 
     /* USER CODE END WHILE */
 
@@ -252,9 +254,9 @@ int main(void)
 }
 
 /**
-  * @brief System Clock Configuration
-  * @retval None
-  */
+ * @brief System Clock Configuration
+ * @retval None
+ */
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -262,8 +264,8 @@ void SystemClock_Config(void)
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
 
   /** Initializes the RCC Oscillators according to the specified parameters
-  * in the RCC_OscInitTypeDef structure.
-  */
+   * in the RCC_OscInitTypeDef structure.
+   */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
@@ -277,9 +279,8 @@ void SystemClock_Config(void)
   }
 
   /** Initializes the CPU, AHB and APB buses clocks
-  */
-  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+   */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
@@ -298,10 +299,10 @@ void SystemClock_Config(void)
 }
 
 /**
-  * @brief ADC1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief ADC1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_ADC1_Init(void)
 {
 
@@ -316,7 +317,7 @@ static void MX_ADC1_Init(void)
   /* USER CODE END ADC1_Init 1 */
 
   /** Common config
-  */
+   */
   hadc1.Instance = ADC1;
   hadc1.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc1.Init.ContinuousConvMode = ENABLE;
@@ -330,7 +331,7 @@ static void MX_ADC1_Init(void)
   }
 
   /** Configure Regular Channel
-  */
+   */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
@@ -341,14 +342,13 @@ static void MX_ADC1_Init(void)
   /* USER CODE BEGIN ADC1_Init 2 */
 
   /* USER CODE END ADC1_Init 2 */
-
 }
 
 /**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief I2C1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_I2C1_Init(void)
 {
 
@@ -375,14 +375,13 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
-  * @brief TIM2 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM2 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM2_Init(void)
 {
 
@@ -397,9 +396,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 73-1;
+  htim2.Init.Prescaler = 73 - 1;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 1001-1;
+  htim2.Init.Period = 1001 - 1;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
@@ -424,14 +423,13 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 2 */
   HAL_TIM_MspPostInit(&htim2);
-
 }
 
 /**
-  * @brief TIM3 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief TIM3 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_TIM3_Init(void)
 {
 
@@ -473,14 +471,13 @@ static void MX_TIM3_Init(void)
 
   /* USER CODE END TIM3_Init 2 */
   HAL_TIM_MspPostInit(&htim3);
-
 }
 
 /**
-  * @brief USART1 Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief USART1 Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_USART1_UART_Init(void)
 {
 
@@ -506,12 +503,11 @@ static void MX_USART1_UART_Init(void)
   /* USER CODE BEGIN USART1_Init 2 */
 
   /* USER CODE END USART1_Init 2 */
-
 }
 
 /**
-  * Enable DMA controller clock
-  */
+ * Enable DMA controller clock
+ */
 static void MX_DMA_Init(void)
 {
 
@@ -528,14 +524,13 @@ static void MX_DMA_Init(void)
   /* DMA1_Channel5_IRQn interrupt configuration */
   HAL_NVIC_SetPriority(DMA1_Channel5_IRQn, 0, 0);
   HAL_NVIC_EnableIRQ(DMA1_Channel5_IRQn);
-
 }
 
 /**
-  * @brief GPIO Initialization Function
-  * @param None
-  * @retval None
-  */
+ * @brief GPIO Initialization Function
+ * @param None
+ * @retval None
+ */
 static void MX_GPIO_Init(void)
 {
   GPIO_InitTypeDef GPIO_InitStruct = {0};
@@ -549,9 +544,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, motor1_Pin|motor1A3_Pin|motor1A4_Pin|motor1A5_Pin
-                          |motor2_Pin|motor2A9_Pin|motor2A10_Pin|motor2A11_Pin
-                          |motor2A12_Pin, GPIO_PIN_SET);
+  HAL_GPIO_WritePin(GPIOA, motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin, GPIO_PIN_SET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(DHT22_GPIO_Port, DHT22_Pin, GPIO_PIN_SET);
@@ -559,9 +552,7 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pins : motor1_Pin motor1A3_Pin motor1A4_Pin motor1A5_Pin
                            motor2_Pin motor2A9_Pin motor2A10_Pin motor2A11_Pin
                            motor2A12_Pin */
-  GPIO_InitStruct.Pin = motor1_Pin|motor1A3_Pin|motor1A4_Pin|motor1A5_Pin
-                          |motor2_Pin|motor2A9_Pin|motor2A10_Pin|motor2A11_Pin
-                          |motor2A12_Pin;
+  GPIO_InitStruct.Pin = motor1_Pin | motor1A3_Pin | motor1A4_Pin | motor1A5_Pin | motor2_Pin | motor2A9_Pin | motor2A10_Pin | motor2A11_Pin | motor2A12_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
@@ -584,9 +575,9 @@ static void MX_GPIO_Init(void)
 /* USER CODE END 4 */
 
 /**
-  * @brief  This function is executed in case of error occurrence.
-  * @retval None
-  */
+ * @brief  This function is executed in case of error occurrence.
+ * @retval None
+ */
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
@@ -598,14 +589,14 @@ void Error_Handler(void)
   /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef  USE_FULL_ASSERT
+#ifdef USE_FULL_ASSERT
 /**
-  * @brief  Reports the name of the source file and the source line number
-  *         where the assert_param error has occurred.
-  * @param  file: pointer to the source file name
-  * @param  line: assert_param error line source number
-  * @retval None
-  */
+ * @brief  Reports the name of the source file and the source line number
+ *         where the assert_param error has occurred.
+ * @param  file: pointer to the source file name
+ * @param  line: assert_param error line source number
+ * @retval None
+ */
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */

@@ -2,6 +2,7 @@
  * @file    air_quality_control.c
  * @brief   空气质量监测与自动通风控制模块
  * @note    监测MQ135传感器，当空气质量差时自动打开窗户、窗帘并启动风扇通风
+ *          空气质量恢复后，自动关闭窗户和窗帘
  *          优先级: 空气质量控制 > 光照控制
  */
 
@@ -37,6 +38,9 @@ void AirQualityControl_Init(Air_Quality_Control_HandleTypeDef *hctrl,
     hctrl->window_opened_by_air_ctrl = 0;
     hctrl->curtain_opened_by_air_ctrl = 0;
     hctrl->fan_started_by_air_ctrl = 0;
+    hctrl->saved_window_angle = 0;
+    hctrl->saved_curtain_position = 0;
+    hctrl->state_saved = 0;
 }
 
 /**
@@ -149,14 +153,14 @@ static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
 
     /* 检查窗户状态 */
     if (!IsWindowOpen(hctrl)) {
-        /* 窗户未打开，打开窗户到全开位置 (180度) */
+        /* 窗户未打开，打开窗户到全开位置 (90度) */
         if (hctrl->hservo_window != NULL) {
             Servo_SG90_OpenWindow(hctrl->hservo_window);
             hctrl->window_opened_by_air_ctrl = 1;
         }
     }
 
-    /* 窗帘移动到全开位置（如果已在位置0则不会移动） */
+    /* 窗帘移动到全开位置 */
     if (hctrl->hmotor_curtain != NULL) {
         /* 每次空气质量差时都尝试打开窗帘 */
         /* 如果窗帘已经在全开位置，MoveToOpen不会触发移动 */
@@ -173,7 +177,8 @@ static void StartVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
 
 /**
  * @brief  停止通风
- * @note   仅停止由空气质量控制启动的设备
+ * @note   1. 停止风扇
+ *         2. 关闭窗户和窗帘
  */
 static void StopVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
 {
@@ -187,9 +192,17 @@ static void StopVentilation(Air_Quality_Control_HandleTypeDef *hctrl)
         hctrl->fan_started_by_air_ctrl = 0;
     }
 
-    /* 注意：不自动关闭窗户和窗帘，让用户或其他控制逻辑决定何时关闭 */
-    hctrl->window_opened_by_air_ctrl = 0;
-    hctrl->curtain_opened_by_air_ctrl = 0;
+    /* 关闭窗户（如果是由空气质量控制打开的） */
+    if (hctrl->window_opened_by_air_ctrl && hctrl->hservo_window != NULL) {
+        Servo_SG90_CloseWindow(hctrl->hservo_window);  // 关闭到180度
+        hctrl->window_opened_by_air_ctrl = 0;
+    }
+
+    /* 关闭窗帘（如果是由空气质量控制打开的） */
+    if (hctrl->curtain_opened_by_air_ctrl && hctrl->hmotor_curtain != NULL) {
+        Motor_A4988_MoveToClose(hctrl->hmotor_curtain);  // 关闭到位置0
+        hctrl->curtain_opened_by_air_ctrl = 0;
+    }
 }
 
 /**

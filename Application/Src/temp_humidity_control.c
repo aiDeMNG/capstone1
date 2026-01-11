@@ -1,7 +1,8 @@
 /**
  * @file    temp_humidity_control.c
  * @brief   温湿度监测与自动控制模块
- * @note    监测DHT22温湿度传感器，根据温湿度自动调节窗户开度
+ * @note    监测DHT22温湿度传感器，根据温湿度自动调节窗户开度和窗帘
+ *          窗户开则窗帘全开，窗户关则窗帘全关
  *          优先级: 温湿度控制 > 光照控制
  */
 
@@ -22,7 +23,8 @@ static void ReadSensors(Temp_Humidity_Control_HandleTypeDef *hctrl);
 void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
                               GPIO_TypeDef *dht_port,
                               uint16_t dht_pin,
-                              Servo_SG90_HandleTypeDef *hservo_window)
+                              Servo_SG90_HandleTypeDef *hservo_window,
+                              Motor_A4988_HandleTypeDef *hmotor_curtain)
 {
     if (hctrl == NULL)
     {
@@ -32,6 +34,7 @@ void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
     hctrl->dht_port = dht_port;
     hctrl->dht_pin = dht_pin;
     hctrl->hservo_window = hservo_window;
+    hctrl->hmotor_curtain = hmotor_curtain;
     hctrl->state = TEMP_HUM_CTRL_IDLE;
     hctrl->current_priority = PRIORITY_NONE;
     hctrl->temperature = 0.0f;
@@ -40,6 +43,7 @@ void TempHumidityControl_Init(Temp_Humidity_Control_HandleTypeDef *hctrl,
     hctrl->humidity_requires_open = 0;
     hctrl->target_window_opening = 0;
     hctrl->window_controlled_by_temp_hum = 0;
+    hctrl->curtain_controlled_by_temp_hum = 0;
 }
 
 /**
@@ -109,6 +113,7 @@ void TempHumidityControl_Stop(Temp_Humidity_Control_HandleTypeDef *hctrl)
     }
 
     hctrl->window_controlled_by_temp_hum = 0;
+    hctrl->curtain_controlled_by_temp_hum = 0;
     hctrl->state = TEMP_HUM_CTRL_IDLE;
     hctrl->current_priority = PRIORITY_NONE;
 }
@@ -282,7 +287,8 @@ static uint8_t CalculateWindowOpening(Temp_Humidity_Control_HandleTypeDef *hctrl
 /**
  * @brief  调节窗户到目标开度
  * @param  target_opening: 目标开度 (0-100%)
- * @note   将开度映射到舵机角度 (90度=全关, 135度=半开, 180度=全开)
+ * @note   将开度映射到舵机角度 (180度=全关, 135度=半开, 90度=全开)
+ *         窗户开则窗帘全开，窗户关则窗帘全关
  */
 static void AdjustWindow(Temp_Humidity_Control_HandleTypeDef *hctrl, uint8_t target_opening)
 {
@@ -296,20 +302,41 @@ static void AdjustWindow(Temp_Humidity_Control_HandleTypeDef *hctrl, uint8_t tar
     /* 根据目标开度设置舵机角度 */
     if (target_opening == WINDOW_OPEN_NONE)
     {
-        /* 全关: 90度 */
+        /* 全关: 180度 */
         Servo_SG90_CloseWindow(servo);
         hctrl->window_controlled_by_temp_hum = 1;
+
+        /* 窗户关闭，窗帘也全关 */
+        if (hctrl->hmotor_curtain != NULL)
+        {
+            Motor_A4988_MoveToClose(hctrl->hmotor_curtain);
+            hctrl->curtain_controlled_by_temp_hum = 1;
+        }
     }
     else if (target_opening >= WINDOW_OPEN_FULL)
     {
-        /* 全开: 180度 */
+        /* 全开: 90度 */
         Servo_SG90_OpenWindow(servo);
         hctrl->window_controlled_by_temp_hum = 1;
+
+        /* 窗户打开，窗帘全开 */
+        if (hctrl->hmotor_curtain != NULL)
+        {
+            Motor_A4988_MoveToOpen(hctrl->hmotor_curtain);
+            hctrl->curtain_controlled_by_temp_hum = 1;
+        }
     }
     else
     {
         /* 半开: 135度 (或其他中间开度，统一处理为半开) */
         Servo_SG90_HalfWindow(servo);
         hctrl->window_controlled_by_temp_hum = 1;
+
+        /* 窗户打开（半开），窗帘全开 */
+        if (hctrl->hmotor_curtain != NULL)
+        {
+            Motor_A4988_MoveToOpen(hctrl->hmotor_curtain);
+            hctrl->curtain_controlled_by_temp_hum = 1;
+        }
     }
 }

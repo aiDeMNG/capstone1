@@ -2,6 +2,7 @@
  * @file    air_quality_control.h
  * @brief   空气质量监测与自动通风控制模块
  * @note    监测MQ135传感器，当空气质量差时自动打开窗户并启动风扇通风
+ *          空气质量恢复后，自动关闭窗户和窗帘
  *          优先级: 空气质量控制 > 光照控制
  */
 
@@ -45,6 +46,11 @@ typedef struct {
     uint8_t window_opened_by_air_ctrl;           // 窗户是否由空气质量控制打开
     uint8_t curtain_opened_by_air_ctrl;          // 窗帘是否由空气质量控制打开
     uint8_t fan_started_by_air_ctrl;             // 风扇是否由空气质量控制启动
+
+    /* 状态保存（用于恢复） */
+    uint8_t saved_window_angle;                  // 进入通风前的窗户角度
+    int32_t saved_curtain_position;              // 进入通风前的窗帘位置
+    uint8_t state_saved;                         // 是否已保存状态
 
 } Air_Quality_Control_HandleTypeDef;
 
