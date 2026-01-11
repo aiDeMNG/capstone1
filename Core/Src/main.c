@@ -32,6 +32,7 @@
 #include "temp_humidity_control.h"
 #include "light_control.h"
 #include "control_priority.h"
+#include "manual_control.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -73,6 +74,7 @@ Fan_HandleTypeDef hfan;                           // 风扇句柄
 Air_Quality_Control_HandleTypeDef hAirCtrl;       // 空气质量控制句柄
 Temp_Humidity_Control_HandleTypeDef hTempHumCtrl; // 温湿度控制句柄
 Light_Control_HandleTypeDef hLightCtrl;           // 光照控制句柄
+Manual_Control_HandleTypeDef hManualCtrl;         // 手动控制句柄
 
 float g_light_lux = 0.0f; // 全局光照值 (lx)，用于监视传感器
 
@@ -184,6 +186,9 @@ int main(void)
   // 注意：需要更新光照控制模块以支持SG90舵机
   LightControl_Init(&hLightCtrl, &hlsensor, &servo_window, &motor2);
 
+  // 初始化手动控制模块（上位机控制）
+  ManualControl_Init(&hManualCtrl, &servo_window, &motor2, 0);  // 禁用超时自动退出
+
   // 等待传感器稳定（特别是 ADC/MQ135）
   HAL_Delay(2000); // 延迟2秒等待 ADC 稳定
   /* USER CODE END 2 */
@@ -192,28 +197,36 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    // 1. 读取DHT22温湿度
+    // 1. 手动控制处理（最高优先级）- 接收和解析上位机指令
+    ManualControl_Process(&hManualCtrl);
+    Control_Priority manual_priority = ManualControl_GetPriority(&hManualCtrl);
+
+    // 2. 读取DHT22温湿度
     DHT22_update(DHT22_GPIO_Port, DHT22_Pin);
     temp = get_temperature();
     hum = get_humidity();
 
-    // 2. 空气质量自动控制（最高优先级）
-    AirQualityControl_Process(&hAirCtrl, PRIORITY_NONE);
+    // 3. 自动控制逻辑（总是执行，但会被手动模式抑制）
+    // 3.1 空气质量自动控制（传入manual_priority让其检测是否被抑制）
+    AirQualityControl_Process(&hAirCtrl, manual_priority);
     Control_Priority air_priority = AirQualityControl_GetPriority(&hAirCtrl);
 
-    // 3. 温湿度自动控制（次高优先级）
-    TempHumidityControl_Process(&hTempHumCtrl, air_priority);
+    // 3.2 温湿度自动控制（传入air_priority或manual_priority中较高者）
+    Control_Priority higher_priority_for_temp = (manual_priority > air_priority) ? manual_priority : air_priority;
+    TempHumidityControl_Process(&hTempHumCtrl, higher_priority_for_temp);
     Control_Priority temp_hum_priority = TempHumidityControl_GetPriority(&hTempHumCtrl);
 
-    // 4. 光照传感器处理（设置标志位）
+    // 3.3 光照传感器处理（设置标志位）
     LightSensor_Process(&hlsensor);
     g_light_lux = LightSensor_GetLux(&hlsensor);
 
-    // 5. 光照控制（最低优先级，受空气质量和温湿度控制抑制）
-    Control_Priority higher_priority = (air_priority > temp_hum_priority) ? air_priority : temp_hum_priority;
-    LightControl_Process(&hLightCtrl, higher_priority);
+    // 3.4 光照控制（传入最高优先级）
+    Control_Priority highest_priority = manual_priority;
+    if (air_priority > highest_priority) highest_priority = air_priority;
+    if (temp_hum_priority > highest_priority) highest_priority = temp_hum_priority;
+    LightControl_Process(&hLightCtrl, highest_priority);
 
-    // 6. 执行电机/舵机处理
+    // 4. 执行电机/舵机处理（无论手动还是自动模式都需要）
     Servo_SG90_Process(&servo_window);  // 窗户舵机（SG90，PWM控制）
     Motor_A4988_Process(&motor2);       // 窗帘电机（A4988，位置模式）
 
@@ -479,7 +492,7 @@ static void MX_USART1_UART_Init(void)
 
   /* USER CODE END USART1_Init 1 */
   huart1.Instance = USART1;
-  huart1.Init.BaudRate = 115200;
+  huart1.Init.BaudRate = 9600;
   huart1.Init.WordLength = UART_WORDLENGTH_8B;
   huart1.Init.StopBits = UART_STOPBITS_1;
   huart1.Init.Parity = UART_PARITY_NONE;
